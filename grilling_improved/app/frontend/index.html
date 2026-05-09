@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grilling Improved</title>
+<link rel="stylesheet" href="/static/styles.css">
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div>
+        <div class="topbar-logo">🔥 Grilling</div>
+        <div class="topbar-sub">Temperature Monitor</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div class="ws-dot" title="Live connection"></div>
+      <button class="btn-primary" style="padding:8px 18px;font-size:0.85rem;border-radius:8px" onclick="openAddProbeModal()">+ Add Probe</button>
+    </div>
+  </div>
+
+  <!-- NAV TABS -->
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-tab="dashboard">Dashboard</button>
+    <button class="nav-tab" data-tab="history">Cook History</button>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main-content">
+
+    <!-- DASHBOARD TAB -->
+    <div class="tab-pane" data-pane="dashboard">
+      <!-- Stats bar -->
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-val" id="stat-active" style="color:var(--fire)">—</div>
+          <div class="stat-lbl">Active Cooks</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-reached" style="color:var(--green)">—</div>
+          <div class="stat-lbl">Goals Reached</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-stalls" style="color:var(--amber)">—</div>
+          <div class="stat-lbl">Stalls</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="stat-hottest" style="color:var(--ember)">—</div>
+          <div class="stat-lbl">Hottest Probe</div>
+        </div>
+      </div>
+
+      <!-- Probe grid -->
+      <div class="probe-grid" id="probe-grid"></div>
+    </div>
+
+    <!-- HISTORY TAB -->
+    <div class="tab-pane" data-pane="history" style="display:none">
+      <div class="history-filters">
+        <select class="history-filter-select" id="hist-probe-filter" onchange="filterHistory()">
+          <option value="">All probes</option>
+        </select>
+        <select class="history-filter-select" id="hist-limit" onchange="loadHistory()">
+          <option value="20">Last 20 cooks</option>
+          <option value="50" selected>Last 50 cooks</option>
+          <option value="100">Last 100 cooks</option>
+        </select>
+      </div>
+      <div class="session-list" id="session-list"></div>
+    </div>
+
+  </div><!-- /main-content -->
+</div><!-- /app -->
+
+
+<!-- ══ ADD / EDIT PROBE MODAL ══ -->
+<div class="modal-backdrop" id="probe-modal">
+  <div class="modal">
+    <h2 id="probe-modal-title">Add Probe</h2>
+
+    <div class="form-group">
+      <label>Probe Name</label>
+      <input id="p-name" type="text" placeholder="e.g. Brisket Point, Chicken Breast…">
+    </div>
+
+    <div class="section-divider">Sensor Configuration</div>
+
+    <div class="form-group entity-search">
+      <label>Internal Temperature Sensor (required)</label>
+      <input id="p-probe-entity" type="text" placeholder="Search or type entity_id…" autocomplete="off">
+      <div class="entity-dropdown" id="p-probe-entity-dropdown"></div>
+    </div>
+
+    <div class="form-group entity-search">
+      <label>Ambient Temperature Sensor (optional)</label>
+      <input id="p-ambient-entity" type="text" placeholder="e.g. sensor.terrace_inkbird_ambient" autocomplete="off">
+      <div class="entity-dropdown" id="p-ambient-entity-dropdown"></div>
+    </div>
+
+    <div class="form-group entity-search">
+      <label>Enable Switch (optional — toggles probe power)</label>
+      <input id="p-enable-switch" type="text" placeholder="e.g. switch.terrace_enable_inkbird" autocomplete="off">
+      <div class="entity-dropdown" id="p-enable-switch-dropdown"></div>
+    </div>
+
+    <div class="section-divider">Cooking Goal</div>
+
+    <div class="form-group">
+      <label>Goal Type</label>
+      <select id="p-goal" onchange="updateGoalFields()">
+        <option value="at_target_temperature">At Target Temperature</option>
+        <option value="in_temperature_range">Temperature Range</option>
+        <option value="above_threshold">Above Threshold</option>
+        <option value="below_threshold">Below Threshold</option>
+      </select>
+    </div>
+
+    <div id="row-target">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Target Temperature (°C)</label>
+          <input id="p-target-temp" type="number" step="0.5" placeholder="74">
+        </div>
+        <div class="form-group">
+          <label>Preset</label>
+          <select id="p-preset" class="preset-select-global">
+            <option value="">— No Preset —</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div id="row-range" style="display:none">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Lower Threshold (°C)</label>
+          <input id="p-lower" type="number" step="0.5">
+        </div>
+        <div class="form-group">
+          <label>Upper Threshold (°C)</label>
+          <input id="p-upper" type="number" step="0.5">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Notes (optional)</label>
+      <textarea id="p-notes" rows="2" placeholder="Weight, marinade, special instructions…"></textarea>
+    </div>
+
+    <div class="form-check">
+      <input type="checkbox" id="p-alert" checked>
+      <div>
+        <label for="p-alert">Enable alerts for this probe</label>
+        <div class="sublabel">HA automations will fire when this probe reaches its goal</div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeProbeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveProbe()">Save Probe</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ START COOK MODAL ══ -->
+<div class="modal-backdrop" id="start-cook-modal">
+  <div class="modal">
+    <h2>🔥 Start Cook</h2>
+
+    <div class="form-group">
+      <label>Cook Name</label>
+      <input id="sc-name" type="text" placeholder="e.g. Sunday Brisket, Chicken Thighs…">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Preset</label>
+        <select id="sc-preset" class="preset-select-global">
+          <option value="">— No Preset —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Goal Type</label>
+        <select id="sc-goal" onchange="updateStartCookGoalFields()">
+          <option value="at_target_temperature">At Target Temperature</option>
+          <option value="in_temperature_range">Temperature Range</option>
+          <option value="above_threshold">Above Threshold</option>
+          <option value="below_threshold">Below Threshold</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="sc-row-target">
+      <div class="form-group">
+        <label>Target Temperature (°C)</label>
+        <input id="sc-target" type="number" step="0.5">
+      </div>
+    </div>
+
+    <div id="sc-row-range" style="display:none">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Lower (°C)</label>
+          <input id="sc-lower" type="number" step="0.5">
+        </div>
+        <div class="form-group">
+          <label>Upper (°C)</label>
+          <input id="sc-upper" type="number" step="0.5">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="sc-notes" rows="2" placeholder="Weight, prep notes, cook details…"></textarea>
+    </div>
+
+    <div class="section-divider">Auto-End Settings</div>
+
+    <div class="form-check" style="margin-bottom:10px">
+      <input type="checkbox" id="sc-auto-end" checked>
+      <div>
+        <label for="sc-auto-end">End cook automatically after target temp is reached</label>
+        <div class="sublabel">If unchecked, readings will keep logging until you manually end the cook</div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Minutes after target to auto-end</label>
+        <input id="sc-auto-minutes" type="number" value="10" min="1" max="120">
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeStartCookModal()">Cancel</button>
+      <button class="btn-primary" onclick="startCook()">🔥 Start Cook</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

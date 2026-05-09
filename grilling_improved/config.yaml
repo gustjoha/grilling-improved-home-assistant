@@ -1,0 +1,28 @@
+name: "Grilling Improved"
+description: "Feature-rich BBQ temperature monitoring with live charts, cook history, and ambient tracking."
+version: "1.0.0"
+slug: "grilling_improved"
+init: false
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+ingress_entry: /
+panel_icon: mdi:grill
+panel_title: Grilling
+homeassistant_api: true
+auth_api: true
+options:
+  ha_url: "http://homeassistant:8123"
+schema:
+  ha_url: str
+ports:
+  8099/tcp: null
+map:
+  - data:rw
