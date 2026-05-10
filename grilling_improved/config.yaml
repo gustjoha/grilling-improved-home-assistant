@@ -1,6 +1,6 @@
 name: "Grilling Improved"
 description: "Feature-rich BBQ temperature monitoring with live charts, cook history, and ambient tracking."
-version: "2.0.8"
+version: "2.0.9"
 slug: "grilling_improved"
 init: false
 arch:

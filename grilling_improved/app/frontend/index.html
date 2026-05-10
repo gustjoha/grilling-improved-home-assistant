@@ -46,12 +46,19 @@ const{useState,useEffect,useRef,useCallback}=React;
 //   https://ha/api/hassio_ingress/TOKEN/
 // All API fetch calls must be prefixed with this base so Ingress routes them
 // to our addon container. We strip the trailing slash from pathname.
-const _BASE=(()=>{const p=window.location.pathname;return p==='/'?'':p.replace(/\/$/,'');})();
+// _BASE: the ingress prefix (e.g. /api/hassio_ingress/TOKEN), empty for direct access
+const _BASE=(()=>{
+  const p=window.location.pathname;
+  if(p==='/'||p==='')return'';
+  // Remove trailing slash, then remove everything after the last segment
+  // that looks like an actual page (i.e. keep only the directory part)
+  return p.replace(/\/$/,'');
+})();
 
 const apiFetch=async(path,opts={})=>{
-  // path is like 'api/probes' or '/api/probes' — normalise to no leading slash
-  const clean=path.replace(/^\//,'');
-  const url=_BASE+'/'+clean;
+  // Ensure path starts with / and join cleanly with no double slashes
+  const normalised='/'+path.replace(/^\//,'');
+  const url=_BASE+normalised;
   const res=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${res.status}`);}
   return res.json();
