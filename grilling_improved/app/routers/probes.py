@@ -17,6 +17,7 @@ class ProbeCreate(BaseModel):
     probe_entity: str
     ambient_entity: Optional[str] = None
     enable_switch: Optional[str] = None
+    weather_entity: Optional[str] = None
     goal: str = "at_target_temperature"
     target_temp: Optional[float] = None
     lower_threshold: Optional[float] = None
@@ -31,6 +32,7 @@ class ProbeUpdate(BaseModel):
     probe_entity: Optional[str] = None
     ambient_entity: Optional[str] = None
     enable_switch: Optional[str] = None
+    weather_entity: Optional[str] = None
     goal: Optional[str] = None
     target_temp: Optional[float] = None
     lower_threshold: Optional[float] = None

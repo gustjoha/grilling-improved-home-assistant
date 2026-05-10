@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 
 import database as db
 import ha_client
-from routers import probes, cooks, history
+from routers import probes, cooks, history, analytics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,6 +75,7 @@ app = FastAPI(title="Grilling Improved", lifespan=lifespan)
 app.include_router(probes.router)
 app.include_router(cooks.router)
 app.include_router(history.router)
+app.include_router(analytics.router)
 
 
 @app.get("/api/ha/entities")
