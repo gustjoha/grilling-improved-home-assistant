@@ -172,13 +172,21 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 # ── Serve frontend ─────────────────────────────────────────────────────────────
-# Ingress forwards requests with various path prefixes stripped.
-# We serve index.html for ANY path that isn't an API route.
-# Using middleware instead of a route catch-all avoids method conflicts.
+# HA Ingress sends the X-Ingress-Path header with the base path prefix.
+# We read it server-side and inject it into index.html so the frontend
+# knows exactly what prefix to use for API calls — no guessing from URL.
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import Response as StarletteResponse
+from starlette.responses import HTMLResponse
+
+
+def _build_index(ingress_path: str = "") -> str:
+    with open(INDEX, "r") as f:
+        html = f.read()
+    inject = f'<script>window.__INGRESS_PATH__={json.dumps(ingress_path.rstrip("/"))};</script>'
+    return html.replace("</head>", f"{inject}\n</head>", 1)
+
 
 class SPAMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
@@ -187,13 +195,18 @@ class SPAMiddleware(BaseHTTPMiddleware):
                 and request.method == "GET"
                 and not request.url.path.startswith("/api/")
                 and not request.url.path.startswith("/ws")):
-            return FileResponse(INDEX)
+            ingress_path = request.headers.get("X-Ingress-Path", "")
+            return HTMLResponse(_build_index(ingress_path))
         return response
+
 
 app.add_middleware(SPAMiddleware)
 
+
 @app.get("/")
 @app.get("/index.html")
-async def serve_root():
-    return FileResponse(INDEX)
+async def serve_root(request: Request):
+    ingress_path = request.headers.get("X-Ingress-Path", "")
+    return HTMLResponse(_build_index(ingress_path))
+
 
