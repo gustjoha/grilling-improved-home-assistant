@@ -3,8 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<!-- base href set by script below so relative URLs work via HA Ingress -->
-<script>document.write('<base href="'+window.location.pathname.replace(/[^/]*$/,'')+'"/>');</script>
 <title>Grilling Improved</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,34 +33,19 @@ textarea{resize:vertical;min-height:70px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse-green{0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,.3)}50%{box-shadow:0 0 0 8px rgba(74,222,128,0)}}
 @keyframes toast-in{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#78716c;font-family:sans-serif;font-size:13px">Loading Grilling Improved…</div></div>
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#78716c;font-family:sans-serif;font-size:13px">Loading…</div></div>
 <script type="text/babel" data-presets="react">
 const{useState,useEffect,useRef,useCallback}=React;
 
-// ── Base URL (Ingress-aware) ───────────────────────────────────────────────
-// HA Ingress rewrites paths before forwarding to the addon container,
-// so all fetch() calls must be relative to the current page location.
-// We derive the base path from window.location so relative API calls
-// work both via Ingress and direct access.
-const BASE=(()=>{
-  const p=window.location.pathname;
-  // Strip trailing slash — everything up to (not including) the last /
-  // e.g. /api/hassio_ingress/TOKEN/ -> /api/hassio_ingress/TOKEN
-  //      /                          -> ''
-  if(p&&p!=='/') return p.endsWith('/')?p.slice(0,-1):p;
-  return '';
-})();
-
-// All API calls use paths relative to BASE so they work through Ingress
+// ── API — all calls are relative so Ingress proxy handles path rewriting ──────
+// fetch('api/probes') resolves relative to current page URL automatically.
+// No BASE prefix needed — the browser + Ingress handle it.
 const apiFetch=async(path,opts={})=>{
-  // path starts with /api/... — we make it relative to current page
-  // by using a relative URL (no leading slash) so the browser resolves it
-  // against window.location.href automatically
-  const url=path.startsWith('/')?path.slice(1):path;
-  const res=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});
+  const res=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${res.status}`);}
   return res.json();
 };
@@ -71,17 +54,17 @@ const POST=(p,d)=>apiFetch(p,{method:'POST',body:JSON.stringify(d)});
 const PATCH=(p,d)=>apiFetch(p,{method:'PATCH',body:JSON.stringify(d)});
 const DELETE=p=>apiFetch(p,{method:'DELETE'});
 
-// ── Presets ───────────────────────────────────────────────────────────────
+// ── Presets ───────────────────────────────────────────────────────────────────
 const PRESETS={"Beef - Blue Rare":46,"Beef - Rare":52,"Beef - Medium Rare":57,"Beef - Medium":63,"Beef - Medium Well":68,"Beef - Well Done":74,"Beef - Brisket (Smoked)":96,"Beef - Ribs":93,"Pork - Medium":63,"Pork - Well Done":71,"Pork - Pulled Pork":95,"Pork - Ribs (Smoked)":93,"Pork - Sausage":71,"Chicken - Breast":74,"Chicken - Whole":82,"Turkey - Breast":74,"Turkey - Whole":82,"Lamb - Rare":52,"Lamb - Medium Rare":57,"Lamb - Medium":63,"Lamb - Well Done":74,"Fish - Salmon":52,"Fish - Tuna (Medium Rare)":46,"Fish - Halibut":57,"Fish - Whole Fish":63,"Shrimp / Lobster":63,"Venison - Medium Rare":57,"Venison - Medium":63,"Duck Breast - Medium":57,"Duck Breast - Well Done":74,"Smoke - Hot Smoke":66,"Smoke - Low & Slow BBQ":107,"Smoke - Cold Smoke":25};
 const QUICK=[["Beef - Rare",52],["Beef - Medium Rare",57],["Beef - Medium",63],["Beef - Well Done",74],["Beef - Brisket (Smoked)",96],["Pork - Pulled Pork",95],["Chicken - Breast",74],["Fish - Salmon",52]];
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtTemp=t=>t!=null?`${Number(t).toFixed(1)}°`:'—';
 const fmtDur=s=>{if(!s)return'—';if(s<60)return`${Math.round(s)}s`;if(s<3600)return`${Math.round(s/60)}m`;return`${Math.floor(s/3600)}h ${Math.round((s%3600)/60)}m`;};
 const fmtDate=iso=>iso?new Date(iso).toLocaleDateString():'—';
 const fmtTime=iso=>iso?new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'—';
 
-// ── Toast ─────────────────────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────────────────────────
 const ToastCtx=React.createContext(null);
 function ToastProvider({children}){
   const[toasts,setToasts]=useState([]);
@@ -95,18 +78,14 @@ function ToastProvider({children}){
     <ToastCtx.Provider value={add}>
       {children}
       <div style={{position:'fixed',bottom:24,right:24,zIndex:1000,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
-        {toasts.map(t=>(
-          <div key={t.id} style={{background:'var(--surface)',border:`1px solid ${C[t.type]}`,color:C[t.type],padding:'10px 18px',borderRadius:10,fontSize:13,fontWeight:600,animation:'toast-in .25s ease',boxShadow:'0 8px 32px rgba(0,0,0,.5)'}}>
-            {t.msg}
-          </div>
-        ))}
+        {toasts.map(t=><div key={t.id} style={{background:'var(--surface)',border:`1px solid ${C[t.type]}`,color:C[t.type],padding:'10px 18px',borderRadius:10,fontSize:13,fontWeight:600,animation:'toast-in .25s ease',boxShadow:'0 8px 32px rgba(0,0,0,.5)'}}>{t.msg}</div>)}
       </div>
     </ToastCtx.Provider>
   );
 }
 const useToast=()=>React.useContext(ToastCtx);
 
-// ── WebSocket ─────────────────────────────────────────────────────────────
+// ── WebSocket ─────────────────────────────────────────────────────────────────
 function useWS(onMessage){
   const[conn,setConn]=useState(false);
   const cb=useRef(onMessage);
@@ -115,7 +94,8 @@ function useWS(onMessage){
     let t;
     const connect=()=>{
       const proto=location.protocol==='https:'?'wss':'ws';
-      const s=new WebSocket(`${proto}://${location.host}${BASE}/ws`);
+      // Use same host — Ingress proxies WS too
+      const s=new WebSocket(`${proto}://${location.host}${location.pathname.replace(/\/$/,'')||''}/ws`);
       s.onopen=()=>{
         setConn(true);
         const ping=setInterval(()=>s.readyState===1&&s.send(JSON.stringify({type:'ping'})),20000);
@@ -125,21 +105,63 @@ function useWS(onMessage){
       s.onmessage=e=>{try{cb.current(JSON.parse(e.data));}catch(_){}};
     };
     connect();
-    return()=>{clearTimeout(t);};
+    return()=>clearTimeout(t);
   },[]);
   return conn;
 }
 
-// ── UI primitives ─────────────────────────────────────────────────────────
-const btn=(extra={})=>({padding:'9px 18px',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer',fontWeight:600,fontSize:13,transition:'all .15s',...extra});
-const card=(extra={})=>({background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius)',...extra});
-
+// ── UI primitives ─────────────────────────────────────────────────────────────
+const btn=(x={})=>({padding:'9px 18px',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer',fontWeight:600,fontSize:13,transition:'all .15s',...x});
+const card=(x={})=>({background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius)',...x});
 function Label({children}){return <div style={{fontSize:11,fontWeight:600,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:5}}>{children}</div>;}
 function Divider({label}){return <div style={{fontSize:11,fontWeight:600,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.1em',padding:'14px 0 8px',borderTop:'1px solid var(--border)',marginTop:8}}>{label}</div>;}
 function Inp({label,...p}){return <div style={{marginBottom:16}}>{label&&<Label>{label}</Label>}<input {...p}/></div>;}
 function Sel({label,children,...p}){return <div style={{marginBottom:16}}>{label&&<Label>{label}</Label>}<select {...p}>{children}</select></div>;}
 function Txta({label,...p}){return <div style={{marginBottom:16}}>{label&&<Label>{label}</Label>}<textarea {...p}/></div>;}
 
+// ── Setup Screen ─────────────────────────────────────────────────────────────
+function SetupScreen({onDone}){
+  const[haUrl,setHaUrl]=useState('http://homeassistant.local:8123');
+  const[token,setToken]=useState('');
+  const[saving,setSaving]=useState(false);
+  const[error,setError]=useState('');
+  const save=async()=>{
+    if(!haUrl||!token){setError('Both fields are required');return;}
+    setSaving(true);setError('');
+    try{
+      await POST('api/setup/configure',{ha_url:haUrl,ha_token:token});
+      onDone();
+    }catch(e){setError(e.message);}
+    finally{setSaving(false);}
+  };
+  return(
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'var(--bg)',padding:20}}>
+      <div style={{...card({padding:36,maxWidth:480,width:'100%',animation:'fadeIn .3s ease'})}} >
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{fontSize:48,marginBottom:12}}>🔥</div>
+          <h1 style={{fontFamily:'var(--display)',fontSize:32,letterSpacing:'.04em',background:'linear-gradient(135deg,var(--fire),var(--ember))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',marginBottom:8}}>
+            Grilling Improved
+          </h1>
+          <p style={{color:'var(--muted)',fontSize:14}}>Connect to your Home Assistant to get started</p>
+        </div>
+        <Inp label="Home Assistant URL" value={haUrl} onChange={e=>setHaUrl(e.target.value)} placeholder="http://homeassistant.local:8123" type="url"/>
+        <div style={{marginBottom:16}}>
+          <Label>Long-Lived Access Token</Label>
+          <textarea value={token} onChange={e=>setToken(e.target.value)} placeholder="Paste your long-lived access token here…" style={{minHeight:90,fontSize:12,fontFamily:'monospace'}}/>
+          <div style={{fontSize:11,color:'var(--muted)',marginTop:6}}>
+            Create one in HA → Profile → Long-Lived Access Tokens → Create Token
+          </div>
+        </div>
+        {error&&<div style={{color:'var(--red)',fontSize:13,marginBottom:14,padding:'8px 12px',background:'rgba(248,113,113,.1)',borderRadius:8,border:'1px solid rgba(248,113,113,.2)'}}>{error}</div>}
+        <button onClick={save} disabled={saving} style={{...btn({width:'100%',background:'linear-gradient(135deg,var(--fire),var(--ember))',color:'#fff',border:'none',padding:'12px',fontSize:15,opacity:saving?.6:1})}}>
+          {saving?'Connecting…':'Connect to Home Assistant'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Entity Search ─────────────────────────────────────────────────────────────
 function EntitySearch({label,value,onChange,domains=['sensor'],placeholder}){
   const[q,setQ]=useState(value||'');
   const[ents,setEnts]=useState([]);
@@ -148,15 +170,11 @@ function EntitySearch({label,value,onChange,domains=['sensor'],placeholder}){
   useEffect(()=>setQ(value||''),[value]);
   useEffect(()=>{
     if(!q||q.length<2){setOpen(false);return;}
-    GET(`/api/ha/entities?domain=${domains.join(',')}`)
-      .then(all=>{ const f=all.filter(e=>e.entity_id.toLowerCase().includes(q.toLowerCase())||e.friendly_name.toLowerCase().includes(q.toLowerCase())).slice(0,10); setEnts(f); setOpen(f.length>0); })
+    GET(`api/ha/entities?domain=${domains.join(',')}`)
+      .then(all=>{const f=all.filter(e=>e.entity_id.toLowerCase().includes(q.toLowerCase())||e.friendly_name.toLowerCase().includes(q.toLowerCase())).slice(0,10);setEnts(f);setOpen(f.length>0);})
       .catch(()=>{});
   },[q]);
-  useEffect(()=>{
-    const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
-    document.addEventListener('mousedown',h);
-    return()=>document.removeEventListener('mousedown',h);
-  },[]);
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener('mousedown',h);return()=>document.removeEventListener('mousedown',h);},[]);
   return(
     <div style={{marginBottom:16,position:'relative'}} ref={ref}>
       {label&&<Label>{label}</Label>}
@@ -180,6 +198,7 @@ function EntitySearch({label,value,onChange,domains=['sensor'],placeholder}){
   );
 }
 
+// ── Modal ─────────────────────────────────────────────────────────────────────
 function Modal({open,onClose,title,children,width=520}){
   useEffect(()=>{if(!open)return;const h=e=>e.key==='Escape'&&onClose();document.addEventListener('keydown',h);return()=>document.removeEventListener('keydown',h);},[open,onClose]);
   if(!open)return null;
@@ -195,7 +214,6 @@ function Modal({open,onClose,title,children,width=520}){
     </div>
   );
 }
-
 function ModalActions({onCancel,onSave,saveLabel='Save',saving=false}){
   return(
     <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:10,marginTop:24,borderTop:'1px solid var(--border)',paddingTop:20}}>
@@ -207,7 +225,7 @@ function ModalActions({onCancel,onSave,saveLabel='Save',saving=false}){
   );
 }
 
-// ── Chart ────────────────────────────────────────────────────────────────
+// ── Chart ─────────────────────────────────────────────────────────────────────
 function TempChart({readings=[],targetTemp,height=120}){
   const ref=useRef();const chart=useRef();
   useEffect(()=>{
@@ -228,7 +246,7 @@ function TempChart({readings=[],targetTemp,height=120}){
   return <canvas ref={ref} style={{height}}/>;
 }
 
-// ── ProbeCard ─────────────────────────────────────────────────────────────
+// ── Probe Card ────────────────────────────────────────────────────────────────
 function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitch,onRestStart,onJournal,chartRange,onChartRange}){
   const session=probe.active_session;
   const temp=probe.current_temp;
@@ -239,11 +257,10 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
   const[showAll,setShowAll]=useState(false);
   const[journal,setJournal]=useState(session?.journal||'');
   const[restMin,setRestMin]=useState(session?.rest_minutes||15);
-  const toast=useToast();
 
   useEffect(()=>{
     if(!session){setReadings([]);return;}
-    GET(`/api/history/session/${session.id}/readings/recent?minutes=${chartRange||30}`)
+    GET(`api/history/session/${session.id}/readings/recent?minutes=${chartRange||30}`)
       .then(d=>setReadings(d.readings||[])).catch(()=>{});
   },[session?.id,chartRange]);
 
@@ -253,14 +270,12 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
   const pct=session?.target_temp&&!offline?Math.min(100,Math.max(0,((temp-(session.min_temp??temp))/(session.target_temp-(session.min_temp??temp)))*100)):null;
 
   return(
-    <div style={{...card({borderRadius:'var(--radius-lg)',overflow:'hidden',transition:'border-color .2s',animation:'fadeIn .3s ease',...(reached?{borderColor:'#4ade80',animation:'fadeIn .3s ease, pulse-green 2.5s infinite'}:{})})}} >
-      {/* Header */}
+    <div style={{...card({borderRadius:'var(--radius-lg)',overflow:'hidden',transition:'border-color .2s',animation:'fadeIn .3s ease',...(reached?{borderColor:'#4ade80'}:{})})}}>
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'14px 16px 12px',borderBottom:'1px solid var(--border)'}}>
         <div><div style={{fontWeight:700,fontSize:15}}>{probe.name}</div><div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{probe.probe_entity}</div></div>
         <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em',border:`1px solid ${badge[1]}`,background:`${badge[1]}22`,color:badge[1]}}>{badge[0]}</span>
       </div>
 
-      {/* Temp */}
       <div style={{display:'flex',alignItems:'flex-start',gap:16,padding:'16px 16px 10px'}}>
         <div style={{flex:1}}>
           <div style={{fontFamily:'var(--display)',fontSize:52,lineHeight:1,letterSpacing:'.02em',color:tempColor}}>{offline?'—':`${Number(temp).toFixed(1)}°`}</div>
@@ -270,20 +285,18 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         {ambient!=null&&<div style={{textAlign:'right'}}><div style={{fontFamily:'var(--display)',fontSize:22,color:'#60a5fa'}}>{Number(ambient).toFixed(1)}°</div><div style={{fontSize:11,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.08em'}}>Ambient</div></div>}
       </div>
 
-      {/* Switch */}
       {probe.enable_switch&&(
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 16px',borderTop:'1px solid var(--border)',fontSize:12,color:'var(--muted)'}}>
           <span>{probe.enable_switch.split('.')[1]}</span>
           <label style={{position:'relative',width:36,height:20,cursor:'pointer',display:'block'}}>
             <input type="checkbox" checked={probe.switch_state==='on'} onChange={e=>onSwitch(probe.id,e.target.checked)} style={{opacity:0,width:0,height:0,position:'absolute'}}/>
             <div style={{position:'absolute',inset:0,borderRadius:10,transition:'background .2s',background:probe.switch_state==='on'?'rgba(249,115,22,.3)':'var(--surface3)'}}>
-              <div style={{position:'absolute',width:14,height:14,top:3,borderRadius:'50%',transition:'transform .2s, background .2s',transform:probe.switch_state==='on'?'translateX(19px)':'translateX(3px)',background:probe.switch_state==='on'?'var(--fire)':'var(--muted)'}}/>
+              <div style={{position:'absolute',width:14,height:14,top:3,borderRadius:'50%',transition:'transform .2s,background .2s',transform:probe.switch_state==='on'?'translateX(19px)':'translateX(3px)',background:probe.switch_state==='on'?'var(--fire)':'var(--muted)'}}/>
             </div>
           </label>
         </div>
       )}
 
-      {/* Progress */}
       {pct!=null&&(
         <div style={{padding:'4px 16px 10px'}}>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'var(--muted)',marginBottom:5}}><span>Progress</span><span>{pct.toFixed(0)}%</span></div>
@@ -291,7 +304,6 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         </div>
       )}
 
-      {/* Metrics */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:1,background:'var(--border)',borderTop:'1px solid var(--border)'}}>
         {[['Rate °/min',probe.last_ror!=null?`${probe.last_ror.toFixed(2)}°/m`:'—'],['Peak',fmtTemp(session?.peak_temp)],['Min',fmtTemp(session?.min_temp)]].map(([l,v])=>(
           <div key={l} style={{background:'var(--surface)',padding:'10px 8px',textAlign:'center'}}>
@@ -301,7 +313,6 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         ))}
       </div>
 
-      {/* Chart */}
       <div style={{padding:'12px 16px 14px',borderTop:'1px solid var(--border)'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <span style={{fontSize:11,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.09em'}}>Temperature Log</span>
@@ -316,13 +327,10 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         <TempChart readings={readings} targetTemp={session?.target_temp} height={110}/>
       </div>
 
-      {/* Presets */}
       <div style={{padding:'10px 12px',borderTop:'1px solid var(--border)',background:'var(--surface2)'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,fontSize:11,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.09em'}}>
           <span>🥩 Quick Preset</span>
-          <button onClick={()=>setShowAll(p=>!p)} style={{...btn({padding:'2px 8px',fontSize:11,color:'var(--fire)',background:'transparent',border:'none'})}}>
-            {showAll?'Hide ▲':'All ▾'}
-          </button>
+          <button onClick={()=>setShowAll(p=>!p)} style={btn({padding:'2px 8px',fontSize:11,color:'var(--fire)',background:'transparent',border:'none'})}>{showAll?'Hide ▲':'All ▾'}</button>
         </div>
         <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
           {QUICK.map(([name,t])=>(
@@ -339,25 +347,13 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         )}
       </div>
 
-      {/* Rest timer */}
       {session&&(()=>{
         if(session.rest_ended_at)return <div style={{padding:'8px 16px',background:'rgba(74,222,128,.06)',borderTop:'1px solid rgba(74,222,128,.15)',fontSize:12,color:'#4ade80'}}>✅ Resting complete — ready to slice!</div>;
-        if(session.rest_started_at){
-          const end=new Date(new Date(session.rest_started_at).getTime()+(session.rest_minutes||10)*60000);
-          const rem=Math.max(0,Math.round((end-Date.now())/60000));
-          return <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 16px',background:'rgba(96,165,250,.06)',borderTop:'1px solid rgba(96,165,250,.15)'}}><span style={{fontSize:12,color:'#60a5fa'}}>🌡️ Resting… {rem} min left</span></div>;
-        }
-        if(reached)return(
-          <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 16px',borderTop:'1px solid var(--border)'}}>
-            <span style={{fontSize:12,color:'var(--muted)',flex:1}}>Rest timer?</span>
-            <input type="number" value={restMin} onChange={e=>setRestMin(e.target.value)} style={{width:55,textAlign:'center',padding:'4px 6px',fontSize:12}} min={1} max={120}/>
-            <button onClick={()=>onRestStart(session.id,restMin)} style={btn({padding:'4px 12px',fontSize:12,color:'#60a5fa',border:'1px solid rgba(96,165,250,.3)',background:'rgba(96,165,250,.1)'})}>▶</button>
-          </div>
-        );
+        if(session.rest_started_at){const end=new Date(new Date(session.rest_started_at).getTime()+(session.rest_minutes||10)*60000);const rem=Math.max(0,Math.round((end-Date.now())/60000));return <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 16px',background:'rgba(96,165,250,.06)',borderTop:'1px solid rgba(96,165,250,.15)'}}><span style={{fontSize:12,color:'#60a5fa'}}>🌡️ Resting… {rem} min left</span></div>;}
+        if(reached)return <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 16px',borderTop:'1px solid var(--border)'}}><span style={{fontSize:12,color:'var(--muted)',flex:1}}>Rest timer?</span><input type="number" value={restMin} onChange={e=>setRestMin(e.target.value)} style={{width:55,textAlign:'center',padding:'4px 6px',fontSize:12}} min={1} max={120}/><button onClick={()=>onRestStart(session.id,restMin)} style={btn({padding:'4px 12px',fontSize:12,color:'#60a5fa',border:'1px solid rgba(96,165,250,.3)',background:'rgba(96,165,250,.1)'})}>▶</button></div>;
         return null;
       })()}
 
-      {/* Journal */}
       {session&&(
         <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)'}}>
           <Label>📝 Cook Journal</Label>
@@ -366,7 +362,6 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         </div>
       )}
 
-      {/* Actions */}
       <div style={{display:'flex',gap:8,padding:'10px 12px',borderTop:'1px solid var(--border)',background:'var(--surface2)'}}>
         <button onClick={()=>onEdit(probe)} style={{...btn({flex:1,fontSize:12,color:'var(--muted)'})}}>✏️ Edit</button>
         <button onClick={()=>onDelete(probe.id)} style={{...btn({flex:1,fontSize:12,color:'var(--red)',borderColor:'rgba(248,113,113,.3)'})}}>🗑 Remove</button>
@@ -381,7 +376,7 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
   );
 }
 
-// ── Probe Modal ────────────────────────────────────────────────────────────
+// ── Probe Modal ────────────────────────────────────────────────────────────────
 function ProbeModal({open,probe,onClose,onSave}){
   const toast=useToast();
   const[saving,setSaving]=useState(false);
@@ -394,8 +389,8 @@ function ProbeModal({open,probe,onClose,onSave}){
     setSaving(true);
     try{
       const d={...f,target_temp:parseFloat(f.target_temp)||null,lower_threshold:parseFloat(f.lower_threshold)||null,upper_threshold:parseFloat(f.upper_threshold)||null,ambient_entity:f.ambient_entity||null,enable_switch:f.enable_switch||null,weather_entity:f.weather_entity||null,preset:f.preset||null};
-      if(probe)await PATCH(`/api/probes/${probe.id}`,d);
-      else await POST('/api/probes',d);
+      if(probe)await PATCH(`api/probes/${probe.id}`,d);
+      else await POST('api/probes',d);
       toast(probe?'Probe updated ✓':'Probe added ✓');
       onSave();onClose();
     }catch(e){toast(e.message,'error');}
@@ -429,7 +424,7 @@ function ProbeModal({open,probe,onClose,onSave}){
   );
 }
 
-// ── Start Cook Modal ───────────────────────────────────────────────────────
+// ── Start Cook Modal ───────────────────────────────────────────────────────────
 function StartCookModal({open,probe,onClose,onSave}){
   const toast=useToast();
   const[saving,setSaving]=useState(false);
@@ -437,16 +432,14 @@ function StartCookModal({open,probe,onClose,onSave}){
   const[f,setF]=useState(blank);
   const[milestones,setMs]=useState([]);
   const[msT,setMsT]=useState('');const[msL,setMsL]=useState('');
-  useEffect(()=>{
-    if(open&&probe){setF({...blank,name:probe.preset?`${probe.name} — ${probe.preset}`:probe.name,preset:probe.preset||'',goal:probe.goal||'at_target_temperature',target_temp:probe.target_temp||'',lower_threshold:probe.lower_threshold||'',upper_threshold:probe.upper_threshold||''});setMs([]);}
-  },[open,probe]);
+  useEffect(()=>{if(open&&probe){setF({...blank,name:probe.preset?`${probe.name} — ${probe.preset}`:probe.name,preset:probe.preset||'',goal:probe.goal||'at_target_temperature',target_temp:probe.target_temp||'',lower_threshold:probe.lower_threshold||'',upper_threshold:probe.upper_threshold||''});setMs([]);}},[ open,probe]);
   const set=(k,v)=>setF(x=>({...x,[k]:v}));
   const addMs=()=>{const t=parseFloat(msT);if(!t||isNaN(t)){toast('Enter a temperature','error');return;}setMs(m=>[...m,{temp:t,label:msL||`${t}°C`}]);setMsT('');setMsL('');};
   const start=async()=>{
     if(!f.name){toast('Cook name required','error');return;}
     setSaving(true);
     try{
-      await POST('/api/cooks/start',{probe_id:probe.id,name:f.name,preset:f.preset||null,notes:f.notes||'',goal:f.goal,target_temp:parseFloat(f.target_temp)||null,lower_threshold:parseFloat(f.lower_threshold)||null,upper_threshold:parseFloat(f.upper_threshold)||null,auto_end:f.auto_end,auto_end_minutes:parseInt(f.auto_end_minutes)||10,meat_weight_kg:parseFloat(f.weight)||null,rest_minutes:parseInt(f.rest_minutes)||0,milestones});
+      await POST('api/cooks/start',{probe_id:probe.id,name:f.name,preset:f.preset||null,notes:f.notes||'',goal:f.goal,target_temp:parseFloat(f.target_temp)||null,lower_threshold:parseFloat(f.lower_threshold)||null,upper_threshold:parseFloat(f.upper_threshold)||null,auto_end:f.auto_end,auto_end_minutes:parseInt(f.auto_end_minutes)||10,meat_weight_kg:parseFloat(f.weight)||null,rest_minutes:parseInt(f.rest_minutes)||0,milestones});
       toast('Cook started! 🔥');onSave();onClose();
     }catch(e){toast(e.message,'error');}
     finally{setSaving(false);}
@@ -460,22 +453,22 @@ function StartCookModal({open,probe,onClose,onSave}){
         <Sel label="Goal Type" value={f.goal} onChange={e=>set('goal',e.target.value)}><option value="at_target_temperature">At Target Temperature</option><option value="in_temperature_range">Temperature Range</option><option value="above_threshold">Above Threshold</option><option value="below_threshold">Below Threshold</option></Sel>
       </div>
       {!isRange?<Inp label="Target Temperature (°C)" type="number" step="0.5" value={f.target_temp} onChange={e=>set('target_temp',e.target.value)}/>:<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label="Lower (°C)" type="number" step="0.5" value={f.lower_threshold} onChange={e=>set('lower_threshold',e.target.value)}/><Inp label="Upper (°C)" type="number" step="0.5" value={f.upper_threshold} onChange={e=>set('upper_threshold',e.target.value)}/></div>}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label="Meat Weight (kg)" type="number" step="0.1" value={f.weight} onChange={e=>set('weight',e.target.value)} placeholder="3.2"/><Inp label="Rest time after cook (min)" type="number" value={f.rest_minutes} onChange={e=>set('rest_minutes',e.target.value)}/></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><Inp label="Meat Weight (kg)" type="number" step="0.1" value={f.weight} onChange={e=>set('weight',e.target.value)} placeholder="3.2"/><Inp label="Rest time (min)" type="number" value={f.rest_minutes} onChange={e=>set('rest_minutes',e.target.value)}/></div>
       <Txta label="Notes" value={f.notes} onChange={e=>set('notes',e.target.value)} placeholder="Prep notes…"/>
       <Divider label="Temperature Milestones"/>
-      <div style={{fontSize:12,color:'var(--muted)',marginBottom:8}}>Get notified at specific temperatures during the cook</div>
+      <div style={{fontSize:12,color:'var(--muted)',marginBottom:8}}>Get notified at specific temperatures</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,alignItems:'flex-end',marginBottom:8}}>
         <div style={{marginBottom:16}}><Label>Temp (°C)</Label><input type="number" step="0.5" value={msT} onChange={e=>setMsT(e.target.value)} placeholder="60"/></div>
         <div style={{marginBottom:16}}><Label>Label</Label><input type="text" value={msL} onChange={e=>setMsL(e.target.value)} placeholder="e.g. Sear zone"/></div>
         <button onClick={addMs} style={btn({marginBottom:16,padding:'9px 14px',color:'var(--fire)',border:'1px solid var(--fire)',background:'rgba(249,115,22,.1)',whiteSpace:'nowrap'})}>+ Add</button>
       </div>
       <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}}>
-        {milestones.map((m,i)=><div key={i} style={{display:'inline-flex',alignItems:'center',gap:8,padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,border:'1px solid #78716c',background:'rgba(120,113,108,.15)',color:'#78716c'}}><span style={{fontFamily:'var(--display)',fontSize:14,color:'var(--ember)'}}>{m.temp}°</span><span>{m.label}</span><span onClick={()=>setMs(ms=>ms.filter((_,j)=>j!==i))} style={{cursor:'pointer',color:'var(--red)'}}>✕</span></div>)}
+        {milestones.map((m,i)=><div key={i} style={{display:'inline-flex',alignItems:'center',gap:8,padding:'3px 10px',borderRadius:20,fontSize:11,border:'1px solid #78716c',background:'rgba(120,113,108,.15)',color:'#78716c'}}><span style={{fontFamily:'var(--display)',fontSize:14,color:'var(--ember)'}}>{m.temp}°</span><span>{m.label}</span><span onClick={()=>setMs(ms=>ms.filter((_,j)=>j!==i))} style={{cursor:'pointer',color:'var(--red)'}}>✕</span></div>)}
       </div>
       <Divider label="Auto-End Settings"/>
       <label style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,cursor:'pointer',marginBottom:10}}>
         <input type="checkbox" checked={f.auto_end} onChange={e=>set('auto_end',e.target.checked)} style={{accentColor:'var(--fire)',width:16,height:16,marginTop:2,flexShrink:0}}/>
-        <div><div style={{fontSize:13}}>Auto-end cook after target reached</div><div style={{fontSize:11,color:'var(--muted)'}}>If unchecked, recordings continue until manually ended</div></div>
+        <div><div style={{fontSize:13}}>Auto-end after target reached</div><div style={{fontSize:11,color:'var(--muted)'}}>If unchecked, recordings continue until manually ended</div></div>
       </label>
       <Inp label="Minutes after target to auto-end" type="number" value={f.auto_end_minutes} onChange={e=>set('auto_end_minutes',e.target.value)} min={1} max={120}/>
       <ModalActions onCancel={onClose} onSave={start} saving={saving} saveLabel="🔥 Start Cook"/>
@@ -483,17 +476,14 @@ function StartCookModal({open,probe,onClose,onSave}){
   );
 }
 
-// ── Session card ───────────────────────────────────────────────────────────
+// ── Session Card ───────────────────────────────────────────────────────────────
 function SessionCard({session}){
   const[open,setOpen]=useState(false);
   const[readings,setReadings]=useState([]);
   const started=new Date(session.started_at);
   const ended=session.ended_at?new Date(session.ended_at):null;
   const dur=ended?fmtDur((ended-started)/1000):'🔴 Active';
-  useEffect(()=>{
-    if(!open||readings.length)return;
-    GET(`/api/history/session/${session.id}/readings`).then(d=>setReadings(d.readings||[])).catch(()=>{});
-  },[open]);
+  useEffect(()=>{if(!open||readings.length)return;GET(`api/history/session/${session.id}/readings`).then(d=>setReadings(d.readings||[])).catch(()=>{});},[open]);
   return(
     <div style={{...card(),overflow:'hidden',transition:'border-color .2s'}} onMouseEnter={e=>e.currentTarget.style.borderColor='var(--fire)'} onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
       <div onClick={()=>setOpen(o=>!o)} style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'14px 16px',cursor:'pointer'}}>
@@ -511,18 +501,17 @@ function SessionCard({session}){
             {session.target_temp&&<span>Target: <strong style={{color:'var(--text)'}}>{session.target_temp}°C</strong></span>}
             {session.goal_reached_at&&<span style={{color:'#4ade80'}}>✅ Goal reached</span>}
             {session.stall_started_at&&<span style={{color:'var(--amber)'}}>⏸ Stall @ {session.stall_temp?.toFixed(1)}°C</span>}
-            {session.ambient_start!=null&&<span>Ambient start: <strong style={{color:'#60a5fa'}}>{session.ambient_start.toFixed(1)}°</strong></span>}
-            {session.ambient_end!=null&&<span>Ambient end: <strong style={{color:'#60a5fa'}}>{session.ambient_end.toFixed(1)}°</strong></span>}
-            {session.weather_temp!=null&&<span>🌤 {session.weather_condition} {session.weather_temp}°C{session.weather_humidity?` ${session.weather_humidity}% RH`:''}</span>}
+            {session.ambient_start!=null&&<span>Amb start: <strong style={{color:'#60a5fa'}}>{session.ambient_start.toFixed(1)}°</strong></span>}
+            {session.ambient_end!=null&&<span>Amb end: <strong style={{color:'#60a5fa'}}>{session.ambient_end.toFixed(1)}°</strong></span>}
+            {session.weather_temp!=null&&<span>🌤 {session.weather_condition} {session.weather_temp}°C{session.weather_humidity?` ${session.weather_humidity}%`:''}</span>}
             {session.meat_weight_kg&&<span>⚖️ {session.meat_weight_kg}kg</span>}
-            <span>End: <strong style={{color:'var(--text)'}}>{session.end_reason||'active'}</strong></span>
           </div>
           {session.journal&&<div style={{marginTop:10,padding:'8px 12px',background:'var(--surface2)',borderRadius:8,fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>📝 {session.journal}</div>}
           {session.photo_data&&<img src={session.photo_data} alt="Cook" style={{width:'100%',borderRadius:8,marginTop:10,maxHeight:200,objectFit:'cover'}}/>}
           <div style={{display:'flex',gap:8,marginTop:12}}>
             <a href={`api/analytics/export/session/${session.id}/csv`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ CSV</a>
             <a href={`api/analytics/export/session/${session.id}/json`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ JSON</a>
-            <button onClick={async()=>{try{await POST(`/api/cooks/${session.id}/cook-again`,{});window.location.reload();}catch(e){alert(e.message);}}} style={btn({fontSize:12,color:'var(--fire)',border:'1px solid rgba(249,115,22,.3)',background:'rgba(249,115,22,.08)'})}>🔥 Cook Again</button>
+            <button onClick={async()=>{try{await POST(`api/cooks/${session.id}/cook-again`,{});window.location.reload();}catch(e){alert(e.message);}}} style={btn({fontSize:12,color:'var(--fire)',border:'1px solid rgba(249,115,22,.3)',background:'rgba(249,115,22,.08)'})}>🔥 Cook Again</button>
           </div>
         </div>
       )}
@@ -530,7 +519,7 @@ function SessionCard({session}){
   );
 }
 
-// ── Analytics ──────────────────────────────────────────────────────────────
+// ── Analytics ──────────────────────────────────────────────────────────────────
 function AnalyticsTab({history}){
   const[presets,setPresets]=useState([]);
   const[weather,setWeather]=useState([]);
@@ -540,7 +529,7 @@ function AnalyticsTab({history}){
   const wChart=useRef();const cChart=useRef();
   const toast=useToast();
   useEffect(()=>{
-    Promise.all([GET('/api/analytics/preset-stats'),GET('/api/analytics/weather-correlation'),GET('/api/analytics/grill-personality')])
+    Promise.all([GET('api/analytics/preset-stats'),GET('api/analytics/weather-correlation'),GET('api/analytics/grill-personality')])
       .then(([p,w,g])=>{setPresets(p);setWeather(w);setPersona(g);});
   },[]);
   useEffect(()=>{
@@ -548,13 +537,13 @@ function AnalyticsTab({history}){
     if(wChart.current)wChart.current.destroy();
     const pts=weather.filter(d=>d.weather_temp!=null&&d.duration_min>0);
     if(!pts.length)return;
-    wChart.current=new Chart(wRef.current,{type:'scatter',data:{datasets:[{label:'Duration vs ambient',data:pts.map(d=>({x:d.weather_temp,y:d.duration_min/60,preset:d.preset})),backgroundColor:'rgba(249,115,22,.6)',pointRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#292524',callbacks:{label:ctx=>`${ctx.raw.preset||'Cook'}: ${ctx.raw.y.toFixed(1)}h @ ${ctx.raw.x}°C`}}},scales:{x:{title:{display:true,text:'Ambient Temp (°C)',color:'#78716c',font:{size:10}},ticks:{color:'#78716c',font:{size:9}},grid:{color:'#292524'}},y:{title:{display:true,text:'Duration (h)',color:'#78716c',font:{size:10}},ticks:{color:'#78716c',font:{size:9},callback:v=>v+'h'},grid:{color:'#292524'}}}}});
+    wChart.current=new Chart(wRef.current,{type:'scatter',data:{datasets:[{data:pts.map(d=>({x:d.weather_temp,y:d.duration_min/60,preset:d.preset})),backgroundColor:'rgba(249,115,22,.6)',pointRadius:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#292524',callbacks:{label:ctx=>`${ctx.raw.preset||'Cook'}: ${ctx.raw.y.toFixed(1)}h @ ${ctx.raw.x}°C`}}},scales:{x:{title:{display:true,text:'Ambient Temp (°C)',color:'#78716c',font:{size:10}},ticks:{color:'#78716c',font:{size:9}},grid:{color:'#292524'}},y:{title:{display:true,text:'Duration (h)',color:'#78716c',font:{size:10}},ticks:{color:'#78716c',font:{size:9},callback:v=>v+'h'},grid:{color:'#292524'}}}}});
     return()=>{if(wChart.current)wChart.current.destroy();};
   },[weather]);
   const compare=async()=>{
     if(selected.length<2){toast('Select at least 2 sessions','error');return;}
     try{
-      const data=await GET(`/api/analytics/compare?session_ids=${selected.join(',')}`);
+      const data=await GET(`api/analytics/compare?session_ids=${selected.join(',')}`);
       if(cChart.current)cChart.current.destroy();
       const COLORS=['#f97316','#60a5fa','#4ade80','#fbbf24','#f87171','#a78bfa'];
       cChart.current=new Chart(cRef.current,{type:'line',data:{datasets:data.sessions.map((s,i)=>({label:s.name,data:(data.readings[s.id]||[]).map(r=>({x:parseFloat((r.minutes_elapsed||0).toFixed(1)),y:r.temp})),borderColor:COLORS[i%COLORS.length],borderWidth:2,pointRadius:0,tension:.3,fill:false}))},options:{responsive:true,maintainAspectRatio:false,parsing:false,plugins:{legend:{labels:{color:'#78716c',font:{size:9},boxWidth:10}},tooltip:{backgroundColor:'#292524',titleColor:'#78716c',bodyColor:'#fafaf9',callbacks:{title:ctx=>`${ctx[0].raw.x} min`,label:ctx=>`${ctx.dataset.label}: ${ctx.raw.y?.toFixed(1)}°`}}},scales:{x:{type:'linear',title:{display:true,text:'Minutes from start',color:'#78716c',font:{size:10}},ticks:{color:'#78716c',font:{size:9}},grid:{color:'#292524'}},y:{ticks:{color:'#78716c',font:{size:9},callback:v=>v+'°'},grid:{color:'#292524'}}}}});
@@ -572,13 +561,7 @@ function AnalyticsTab({history}){
               {!presets.length?<tr><td colSpan={5} style={{padding:20,textAlign:'center',color:'var(--muted)'}}>No completed cooks yet</td></tr>:presets.map(s=>{
                 const rate=s.cook_count>0?Math.round(s.success_count/s.cook_count*100):0;
                 const avgH=s.avg_duration_min?`${Math.floor(s.avg_duration_min/60)}h ${Math.round(s.avg_duration_min%60)}m`:'—';
-                return(<tr key={s.preset} onMouseEnter={e=>e.currentTarget.style.background='rgba(249,115,22,.05)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)',fontWeight:600,color:'var(--text)'}}>{s.preset}</td>
-                  <td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)',color:'var(--fire)'}}>{s.cook_count}</td>
-                  <td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)'}}>{avgH}</td>
-                  <td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)',color:'var(--ember)'}}>{s.avg_peak_temp?s.avg_peak_temp.toFixed(1)+'°':'—'}</td>
-                  <td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)'}}>{rate}%<div style={{height:4,background:'var(--surface3)',borderRadius:2,marginTop:3}}><div style={{height:'100%',width:`${rate}%`,background:'#4ade80',borderRadius:2}}/></div></td>
-                </tr>);
+                return <tr key={s.preset} onMouseEnter={e=>e.currentTarget.style.background='rgba(249,115,22,.05)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}><td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)',fontWeight:600,color:'var(--text)'}}>{s.preset}</td><td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)',color:'var(--fire)'}}>{s.cook_count}</td><td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)'}}>{avgH}</td><td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)',color:'var(--ember)'}}>{s.avg_peak_temp?s.avg_peak_temp.toFixed(1)+'°':'—'}</td><td style={{padding:'8px 12px',borderBottom:'1px solid rgba(68,64,60,.4)'}}>{rate}%<div style={{height:4,background:'var(--surface3)',borderRadius:2,marginTop:3}}><div style={{height:'100%',width:`${rate}%`,background:'#4ade80',borderRadius:2}}/></div></td></tr>;
               })}
             </tbody>
           </table>
@@ -591,23 +574,14 @@ function AnalyticsTab({history}){
             <button onClick={compare} style={btn({padding:'5px 14px',fontSize:12,color:'var(--fire)',border:'1px solid rgba(249,115,22,.4)',background:'rgba(249,115,22,.08)'})}>Compare</button>
           </div>
           <div style={{padding:16}}>
-            <div style={{fontSize:12,color:'var(--muted)',marginBottom:8}}>Select 2–6 completed sessions:</div>
             <div style={{maxHeight:140,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:'6px 12px',marginBottom:12}}>
-              {history.filter(s=>s.ended_at).slice(0,20).map(s=>(
-                <label key={s.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:13,cursor:'pointer'}}>
-                  <input type="checkbox" checked={selected.includes(s.id)} onChange={e=>setSelected(sel=>e.target.checked?[...sel,s.id]:sel.filter(x=>x!==s.id))} style={{accentColor:'var(--fire)'}}/>
-                  <span>{s.name} — <span style={{color:'var(--muted)'}}>{fmtDate(s.started_at)}</span></span>
-                </label>
-              ))}
+              {history.filter(s=>s.ended_at).slice(0,20).map(s=><label key={s.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={selected.includes(s.id)} onChange={e=>setSelected(sel=>e.target.checked?[...sel,s.id]:sel.filter(x=>x!==s.id))} style={{accentColor:'var(--fire)'}}/><span>{s.name} — <span style={{color:'var(--muted)'}}>{fmtDate(s.started_at)}</span></span></label>)}
               {!history.filter(s=>s.ended_at).length&&<div style={{color:'var(--muted)',fontSize:12,padding:'8px 0'}}>No completed sessions yet</div>}
             </div>
             <canvas ref={cRef} style={{height:200}}/>
           </div>
         </div>
-        <div style={A}>
-          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🌤 Weather vs Duration</div>
-          <div style={{padding:16}}><canvas ref={wRef} style={{height:180}}/><div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Requires weather entity on probe.</div></div>
-        </div>
+        <div style={A}><div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🌤 Weather vs Duration</div><div style={{padding:16}}><canvas ref={wRef} style={{height:180}}/><div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Requires weather entity on probe.</div></div></div>
         <div style={A}>
           <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🔥 Grill Personality</div>
           <div style={{padding:16}}>
@@ -622,15 +596,16 @@ function AnalyticsTab({history}){
         </div>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end'}}>
-        <a href={`api/analytics/export/all/csv`} download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All Cooks CSV</a>
+        <a href="api/analytics/export/all/csv" download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All Cooks CSV</a>
       </div>
     </div>
   );
 }
 
-// ── App ────────────────────────────────────────────────────────────────────
+// ── Main App ───────────────────────────────────────────────────────────────────
 function App(){
   const toast=useToast();
+  const[configured,setConfigured]=useState(null); // null=loading
   const[tab,setTab]=useState('dashboard');
   const[probes,setProbes]=useState([]);
   const[history,setHistory]=useState([]);
@@ -639,35 +614,43 @@ function App(){
   const[probeModal,setProbeModal]=useState({open:false,probe:null});
   const[cookModal,setCookModal]=useState({open:false,probe:null});
 
-  const loadProbes=useCallback(async()=>{try{setProbes(await GET('/api/probes'));}catch(e){toast(e.message,'error');};},[]);
-  const loadHistory=useCallback(async()=>{try{setHistory(await GET(`/api/history?limit=${histLimit}`));}catch(e){};},[histLimit]);
+  // Check setup status on mount
+  useEffect(()=>{
+    GET('api/setup/status').then(d=>setConfigured(d.configured)).catch(()=>setConfigured(false));
+  },[]);
 
-  useEffect(()=>{loadProbes();const t=setInterval(loadProbes,10000);return()=>clearInterval(t);},[loadProbes]);
-  useEffect(()=>{if(tab==='history'||tab==='analytics')loadHistory();},[tab,loadHistory]);
+  const loadProbes=useCallback(async()=>{try{setProbes(await GET('api/probes'));}catch(e){};},[]);
+  const loadHistory=useCallback(async()=>{try{setHistory(await GET(`api/history?limit=${histLimit}`));}catch(e){};},[histLimit]);
+
+  useEffect(()=>{if(!configured)return;loadProbes();const t=setInterval(loadProbes,10000);return()=>clearInterval(t);},[configured,loadProbes]);
+  useEffect(()=>{if(configured&&(tab==='history'||tab==='analytics'))loadHistory();},[configured,tab,loadHistory]);
 
   const wsConn=useWS(useCallback(msg=>{
     if(['reading','session_started','session_updated','session_ended'].includes(msg.type))loadProbes();
     if(msg.type==='stall_started')toast(`⏸ Stall at ${msg.temp?.toFixed(1)}°C`,'warn');
     if(msg.type==='stall_ended')toast('✅ Stall resolved!','success');
-    if(msg.type==='milestone_reached')toast(`🎯 Milestone: ${msg.label}`,'info');
+    if(msg.type==='milestone_reached')toast(`🎯 ${msg.label}`,'info');
     if(msg.type==='rest_complete'){toast('🍖 Rest complete — slice!','success');loadProbes();}
     if(msg.type==='session_ended'&&tab==='history')loadHistory();
   },[loadProbes,loadHistory,tab]));
+
+  if(configured===null)return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'var(--muted)',fontSize:13}}>Loading…</div>;
+  if(!configured)return <SetupScreen onDone={()=>setConfigured(true)}/>;
 
   const handlePreset=async(probeId,name,temp)=>{
     setProbes(ps=>ps.map(p=>p.id===probeId?{...p,preset:name,active_session:p.active_session?{...p.active_session,preset:name,target_temp:temp}:null}:p));
     toast(`Preset → ${name} (${temp}°C)`);
     try{
-      await PATCH(`/api/probes/${probeId}`,{preset:name,target_temp:temp});
+      await PATCH(`api/probes/${probeId}`,{preset:name,target_temp:temp});
       const probe=probes.find(p=>p.id===probeId);
-      if(probe?.active_session)await PATCH(`/api/cooks/${probe.active_session.id}`,{preset:name,target_temp:temp});
+      if(probe?.active_session)await PATCH(`api/cooks/${probe.active_session.id}`,{preset:name,target_temp:temp});
     }catch(e){toast(e.message,'error');await loadProbes();}
   };
-  const handleSwitch=async(probeId,on)=>{try{await POST(`/api/probes/${probeId}/switch`,{state:on});toast(`Probe ${on?'enabled':'disabled'}`,'info');await loadProbes();}catch(e){toast(e.message,'error');}};
-  const handleDelete=async(probeId)=>{if(!confirm('Remove this probe and all history?'))return;try{await DELETE(`/api/probes/${probeId}`);toast('Probe removed','error');await loadProbes();}catch(e){toast(e.message,'error');}};
-  const handleEndCook=async(probeId,sessionId)=>{if(!confirm('End this cook session?'))return;try{await POST(`/api/cooks/${sessionId}/end`,{});toast('Cook ended','info');await loadProbes();}catch(e){toast(e.message,'error');}};
-  const handleRestStart=async(sessionId,minutes)=>{try{await POST(`/api/cooks/${sessionId}/rest`,{minutes:parseInt(minutes)});toast(`⏱ Rest timer: ${minutes} min`,'info');await loadProbes();}catch(e){toast(e.message,'error');}};
-  const handleJournal=async(sessionId,text)=>{try{await PATCH(`/api/cooks/${sessionId}/journal`,{journal:text});toast('Journal saved ✓');}catch(e){toast(e.message,'error');}};
+  const handleSwitch=async(probeId,on)=>{try{await POST(`api/probes/${probeId}/switch`,{state:on});toast(`Probe ${on?'enabled':'disabled'}`,'info');await loadProbes();}catch(e){toast(e.message,'error');}};
+  const handleDelete=async(probeId)=>{if(!confirm('Remove this probe?'))return;try{await DELETE(`api/probes/${probeId}`);toast('Probe removed','error');await loadProbes();}catch(e){toast(e.message,'error');}};
+  const handleEndCook=async(probeId,sessionId)=>{if(!confirm('End this cook?'))return;try{await POST(`api/cooks/${sessionId}/end`,{});toast('Cook ended','info');await loadProbes();}catch(e){toast(e.message,'error');}};
+  const handleRestStart=async(sessionId,minutes)=>{try{await POST(`api/cooks/${sessionId}/rest`,{minutes:parseInt(minutes)});toast(`⏱ Rest timer: ${minutes} min`,'info');await loadProbes();}catch(e){toast(e.message,'error');}};
+  const handleJournal=async(sessionId,text)=>{try{await PATCH(`api/cooks/${sessionId}/journal`,{journal:text});toast('Journal saved ✓');}catch(e){toast(e.message,'error');}};
 
   const active=probes.filter(p=>p.active_session).length;
   const reached=probes.filter(p=>p.active_session?.goal_reached_at).length;
@@ -677,7 +660,6 @@ function App(){
 
   return(
     <div style={{display:'flex',flexDirection:'column',height:'100vh'}}>
-      {/* Topbar */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0}}>
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <div style={{fontFamily:'var(--display)',fontSize:26,letterSpacing:'.04em',background:'linear-gradient(135deg,var(--fire),var(--ember))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>🔥 Grilling</div>
@@ -688,8 +670,6 @@ function App(){
           <button onClick={()=>setProbeModal({open:true,probe:null})} style={btn({background:'linear-gradient(135deg,var(--fire),var(--ember))',color:'#fff',border:'none',padding:'8px 16px'})}>+ Add Probe</button>
         </div>
       </div>
-
-      {/* Tabs */}
       <div style={{display:'flex',gap:2,padding:'8px 20px 0',background:'var(--surface)',borderBottom:'1px solid var(--border)',flexShrink:0}}>
         {TABS.map(([id,label])=>(
           <button key={id} onClick={()=>setTab(id)} style={{padding:'7px 18px',fontSize:12,fontWeight:600,letterSpacing:'.06em',textTransform:'uppercase',background:'none',cursor:'pointer',color:tab===id?'var(--fire)':'var(--muted)',borderBottom:tab===id?'2px solid var(--fire)':'2px solid transparent',borderTop:'none',borderLeft:'none',borderRight:'none',transition:'all .15s'}}>
@@ -697,8 +677,6 @@ function App(){
           </button>
         ))}
       </div>
-
-      {/* Content */}
       <div style={{flex:1,overflowY:'auto',padding:20}}>
         {tab==='dashboard'&&(
           <>
@@ -741,11 +719,9 @@ function App(){
           <div>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:10}}>
               <select value={histLimit} onChange={e=>setHistLimit(e.target.value)} style={{width:'auto',padding:'7px 12px',fontSize:13}}>
-                <option value={20}>Last 20 cooks</option>
-                <option value={50}>Last 50 cooks</option>
-                <option value={100}>Last 100 cooks</option>
+                <option value={20}>Last 20 cooks</option><option value={50}>Last 50 cooks</option><option value={100}>Last 100 cooks</option>
               </select>
-              <a href={`api/analytics/export/all/csv`} download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All CSV</a>
+              <a href="api/analytics/export/all/csv" download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All CSV</a>
             </div>
             {history.length===0?(
               <div style={{textAlign:'center',padding:'60px 20px',color:'var(--muted)'}}>
@@ -762,7 +738,6 @@ function App(){
         )}
         {tab==='analytics'&&<AnalyticsTab history={history}/>}
       </div>
-
       <ProbeModal open={probeModal.open} probe={probeModal.probe} onClose={()=>setProbeModal({open:false,probe:null})} onSave={loadProbes}/>
       <StartCookModal open={cookModal.open} probe={cookModal.probe} onClose={()=>setCookModal({open:false,probe:null})} onSave={loadProbes}/>
     </div>

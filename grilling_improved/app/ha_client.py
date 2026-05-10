@@ -23,17 +23,25 @@ import database as db
 
 _LOGGER = logging.getLogger(__name__)
 
+# ── Runtime config (set via setup screen or env fallback) ─────────────────────
+_config = {
+    "ha_url": os.environ.get("HA_URL", "http://supervisor/core"),
+    "ha_token": os.environ.get("SUPERVISOR_TOKEN", ""),
+}
 
-# ── Config (lazy) ─────────────────────────────────────────────────────────────
+
+def set_config(ha_url: str, ha_token: str):
+    """Update HA connection config at runtime (called after setup)."""
+    _config["ha_url"] = ha_url.rstrip("/")
+    _config["ha_token"] = ha_token
+    _LOGGER.info("HA config updated: %s", ha_url)
+
 
 def _ha_url() -> str:
-    return os.environ.get("HA_URL", "http://supervisor/core")
+    return _config.get("ha_url", "")
 
 def _token() -> str:
-    token = os.environ.get("SUPERVISOR_TOKEN", "")
-    if not token:
-        _LOGGER.error("SUPERVISOR_TOKEN is empty!")
-    return token
+    return _config.get("ha_token", "")
 
 def _ws_url() -> str:
     return _ha_url().replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"

@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
 import database as db
 import ha_client
@@ -18,6 +19,28 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 _LOGGER = logging.getLogger(__name__)
+
+DATA_DIR  = os.environ.get("DATA_DIR", "/data")
+CFG_PATH  = os.path.join(DATA_DIR, "config.json")
+FRONTEND  = os.path.join(os.path.dirname(__file__), "frontend")
+INDEX     = os.path.join(FRONTEND, "index.html")
+
+
+# ── Addon config (HA URL + token) ─────────────────────────────────────────────
+
+def load_addon_config() -> dict:
+    try:
+        with open(CFG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_addon_config(cfg: dict):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CFG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+
 
 # ── WebSocket connection manager ──────────────────────────────────────────────
 
@@ -52,19 +75,20 @@ async def broadcast(data: dict):
     await manager.broadcast(data)
 
 
-# ── HA entities endpoint ──────────────────────────────────────────────────────
-
 # ── App lifespan ──────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     await db.init_db()
     ha_client.broadcast_fn = broadcast
-    asyncio.create_task(ha_client.run_websocket())
-    _LOGGER.info("Grilling Improved started")
+    cfg = load_addon_config()
+    if cfg.get("ha_url") and cfg.get("ha_token"):
+        ha_client.set_config(cfg["ha_url"], cfg["ha_token"])
+        asyncio.create_task(ha_client.run_websocket())
+        _LOGGER.info("Grilling Improved started (HA: %s)", cfg["ha_url"])
+    else:
+        _LOGGER.info("Grilling Improved started — awaiting setup (no HA config yet)")
     yield
-    # Shutdown
     _LOGGER.info("Grilling Improved shutting down")
 
 
@@ -78,9 +102,50 @@ app.include_router(history.router)
 app.include_router(analytics.router)
 
 
+class SetupPayload(BaseModel):
+    ha_url: str
+    ha_token: str
+
+
+@app.get("/api/setup/status")
+async def setup_status():
+    cfg = load_addon_config()
+    configured = bool(cfg.get("ha_url") and cfg.get("ha_token"))
+    return {"configured": configured, "ha_url": cfg.get("ha_url", "")}
+
+
+@app.post("/api/setup/configure")
+async def setup_configure(payload: SetupPayload):
+    url = payload.ha_url.rstrip("/")
+    token = payload.ha_token.strip()
+
+    # Validate by hitting the HA API
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{url}/api/",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as r:
+                if r.status not in (200, 201):
+                    return JSONResponse(
+                        {"ok": False, "error": f"HA returned HTTP {r.status} — check URL and token"},
+                        status_code=400,
+                    )
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    cfg = {"ha_url": url, "ha_token": token}
+    save_addon_config(cfg)
+    ha_client.set_config(url, token)
+    asyncio.create_task(ha_client.run_websocket())
+    _LOGGER.info("Setup complete — connected to %s", url)
+    return {"ok": True}
+
+
 @app.get("/api/ha/entities")
 async def ha_entities(domain: str = ""):
-    """Return HA entities, optionally filtered by domain."""
     entities = await ha_client.get_ha_entities()
     if domain:
         domains = [d.strip() for d in domain.split(",")]
@@ -98,7 +163,6 @@ async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
     try:
         while True:
-            # Keep connection alive; client sends pings
             data = await ws.receive_text()
             msg = json.loads(data)
             if msg.get("type") == "ping":
@@ -107,17 +171,13 @@ async def websocket_endpoint(ws: WebSocket):
         manager.disconnect(ws)
 
 
-# ── Static files / SPA ───────────────────────────────────────────────────────
-
-FRONTEND = os.path.join(os.path.dirname(__file__), "frontend")
-INDEX = os.path.join(FRONTEND, "index.html")
-
+# ── Serve frontend ─────────────────────────────────────────────────────────────
+# Serve index.html for all non-API paths so Ingress works cleanly.
+# Ingress strips its own prefix before forwarding, so FastAPI always
+# sees paths starting with / relative to the addon root.
 
 @app.get("/")
+@app.get("/index.html")
 async def serve_root():
     return FileResponse(INDEX)
 
-
-@app.get("/index.html")
-async def serve_index():
-    return FileResponse(INDEX)
