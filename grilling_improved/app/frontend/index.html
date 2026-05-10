@@ -288,7 +288,11 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
         <div style={{flex:1}}>
           <div style={{fontFamily:'var(--display)',fontSize:52,lineHeight:1,letterSpacing:'.02em',color:tempColor}}>{offline?'—':`${Number(temp).toFixed(1)}°`}</div>
           {(session?.preset||probe.preset)&&<div style={{fontSize:13,fontWeight:600,marginTop:4}}>🥩 {session?.preset||probe.preset}</div>}
-          {session?.target_temp&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>Target <strong style={{color:'var(--text)'}}>{session.target_temp}°C</strong></div>}
+          {(session?.target_temp||probe.target_temp)&&(
+            <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>
+              Target <strong style={{color:'var(--fire)',fontSize:14}}>{session?.target_temp||probe.target_temp}°C</strong>
+            </div>
+          )}
         </div>
         {ambient!=null&&<div style={{textAlign:'right'}}><div style={{fontFamily:'var(--display)',fontSize:22,color:'#60a5fa'}}>{Number(ambient).toFixed(1)}°</div><div style={{fontSize:11,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.08em'}}>Ambient</div></div>}
       </div>
