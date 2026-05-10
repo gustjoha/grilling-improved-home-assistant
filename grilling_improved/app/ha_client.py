@@ -16,11 +16,18 @@ import database as db
 
 _LOGGER = logging.getLogger(__name__)
 
-HA_URL = os.environ.get("HA_URL", "http://homeassistant:8123")
-SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
+# Read lazily so environment is fully populated before first use
+def _ha_url() -> str:
+    return os.environ.get("HA_URL", "http://supervisor/core")
 
-# WS URL derived from HA_URL
-WS_URL = HA_URL.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"
+def _token() -> str:
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        _LOGGER.error("SUPERVISOR_TOKEN is empty — check addon config!")
+    return token
+
+def _ws_url() -> str:
+    return _ha_url().replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"
 
 # In-memory state cache: entity_id -> state string
 _state_cache: dict[str, Any] = {}
@@ -72,8 +79,8 @@ def unregister_listener(entity_id: str, callback: Callable):
 
 async def call_service(domain: str, service: str, data: dict) -> bool:
     """Call a HA service via REST API."""
-    url = f"{HA_URL}/api/services/{domain}/{service}"
-    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    url = f"{_ha_url()}/api/services/{domain}/{service}"
+    headers = {"Authorization": f"Bearer {_token()}"}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as r:
@@ -85,13 +92,14 @@ async def call_service(domain: str, service: str, data: dict) -> bool:
 
 async def get_ha_states() -> list[dict]:
     """Fetch all HA states via REST."""
-    url = f"{HA_URL}/api/states"
-    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    url = f"{_ha_url()}/api/states"
+    headers = {"Authorization": f"Bearer {_token()}"}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
                     return await r.json()
+                _LOGGER.error("get_ha_states HTTP %s", r.status)
     except Exception as e:
         _LOGGER.error("Failed to fetch HA states: %s", e)
     return []
@@ -249,14 +257,16 @@ async def run_websocket():
     """Main WebSocket loop — connects to HA, subscribes to state changes."""
     while True:
         try:
-            _LOGGER.info("Connecting to HA WebSocket at %s", WS_URL)
-            async with websockets.connect(WS_URL, ping_interval=30) as ws:
+            ws_url = _ws_url()
+            token = _token()
+            _LOGGER.info("Connecting to HA WebSocket at %s (token present: %s)", ws_url, bool(token))
+            async with websockets.connect(ws_url, ping_interval=30) as ws:
                 # Auth phase
                 msg = json.loads(await ws.recv())
                 if msg.get("type") != "auth_required":
                     raise Exception(f"Unexpected first message: {msg}")
 
-                await ws.send(json.dumps({"type": "auth", "access_token": SUPERVISOR_TOKEN}))
+                await ws.send(json.dumps({"type": "auth", "access_token": token}))
                 msg = json.loads(await ws.recv())
                 if msg.get("type") != "auth_ok":
                     raise Exception(f"Auth failed: {msg}")
