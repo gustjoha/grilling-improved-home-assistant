@@ -25,8 +25,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # ── Runtime config (set via setup screen or env fallback) ─────────────────────
 _config = {
-    "ha_url": os.environ.get("HA_URL", "http://supervisor/core"),
-    "ha_token": os.environ.get("SUPERVISOR_TOKEN", ""),
+    "ha_url": "",
+    "ha_token": "",
 }
 
 
