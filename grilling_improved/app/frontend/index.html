@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<!-- base href set by script below so relative URLs work via HA Ingress -->
+<script>document.write('<base href="'+window.location.pathname.replace(/[^/]*$/,'')+'"/>');</script>
 <title>Grilling Improved</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -41,9 +43,26 @@ textarea{resize:vertical;min-height:70px}
 const{useState,useEffect,useRef,useCallback}=React;
 
 // ── Base URL (Ingress-aware) ───────────────────────────────────────────────
-const BASE=(()=>{const p=window.location.pathname;return(p&&p!=='/')?p.replace(/\/$/,''):'';})();
+// HA Ingress rewrites paths before forwarding to the addon container,
+// so all fetch() calls must be relative to the current page location.
+// We derive the base path from window.location so relative API calls
+// work both via Ingress and direct access.
+const BASE=(()=>{
+  const p=window.location.pathname;
+  // Strip trailing slash — everything up to (not including) the last /
+  // e.g. /api/hassio_ingress/TOKEN/ -> /api/hassio_ingress/TOKEN
+  //      /                          -> ''
+  if(p&&p!=='/') return p.endsWith('/')?p.slice(0,-1):p;
+  return '';
+})();
+
+// All API calls use paths relative to BASE so they work through Ingress
 const apiFetch=async(path,opts={})=>{
-  const res=await fetch(BASE+path,{headers:{'Content-Type':'application/json'},...opts});
+  // path starts with /api/... — we make it relative to current page
+  // by using a relative URL (no leading slash) so the browser resolves it
+  // against window.location.href automatically
+  const url=path.startsWith('/')?path.slice(1):path;
+  const res=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${res.status}`);}
   return res.json();
 };
@@ -501,8 +520,8 @@ function SessionCard({session}){
           {session.journal&&<div style={{marginTop:10,padding:'8px 12px',background:'var(--surface2)',borderRadius:8,fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>📝 {session.journal}</div>}
           {session.photo_data&&<img src={session.photo_data} alt="Cook" style={{width:'100%',borderRadius:8,marginTop:10,maxHeight:200,objectFit:'cover'}}/>}
           <div style={{display:'flex',gap:8,marginTop:12}}>
-            <a href={`${BASE}/api/analytics/export/session/${session.id}/csv`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ CSV</a>
-            <a href={`${BASE}/api/analytics/export/session/${session.id}/json`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ JSON</a>
+            <a href={`api/analytics/export/session/${session.id}/csv`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ CSV</a>
+            <a href={`api/analytics/export/session/${session.id}/json`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ JSON</a>
             <button onClick={async()=>{try{await POST(`/api/cooks/${session.id}/cook-again`,{});window.location.reload();}catch(e){alert(e.message);}}} style={btn({fontSize:12,color:'var(--fire)',border:'1px solid rgba(249,115,22,.3)',background:'rgba(249,115,22,.08)'})}>🔥 Cook Again</button>
           </div>
         </div>
@@ -603,7 +622,7 @@ function AnalyticsTab({history}){
         </div>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end'}}>
-        <a href={`${BASE}/api/analytics/export/all/csv`} download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All Cooks CSV</a>
+        <a href={`api/analytics/export/all/csv`} download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All Cooks CSV</a>
       </div>
     </div>
   );
@@ -726,7 +745,7 @@ function App(){
                 <option value={50}>Last 50 cooks</option>
                 <option value={100}>Last 100 cooks</option>
               </select>
-              <a href={`${BASE}/api/analytics/export/all/csv`} download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All CSV</a>
+              <a href={`api/analytics/export/all/csv`} download style={{...btn({fontSize:13,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ Export All CSV</a>
             </div>
             {history.length===0?(
               <div style={{textAlign:'center',padding:'60px 20px',color:'var(--muted)'}}>
