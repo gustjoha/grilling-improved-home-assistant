@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 import database as db
 import ha_client
@@ -110,11 +109,10 @@ async def websocket_endpoint(ws: WebSocket):
 # ── Static files / SPA ───────────────────────────────────────────────────────
 
 FRONTEND = os.path.join(os.path.dirname(__file__), "frontend")
-app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
+INDEX = os.path.join(FRONTEND, "index.html")
 
 
 @app.get("/")
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str = ""):
-    index = os.path.join(FRONTEND, "index.html")
-    return FileResponse(index)
+    return FileResponse(INDEX)
