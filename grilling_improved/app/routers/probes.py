@@ -92,7 +92,9 @@ async def update_probe(probe_id: str, data: ProbeUpdate):
     probe = await db.get_probe(probe_id)
     if not probe:
         raise HTTPException(404, "Probe not found")
-    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    # Use model_dump with exclude_unset=True so only fields the client
+    # explicitly sent are included — this allows sending null to clear a field
+    updates = data.model_dump(exclude_unset=True)
     return await db.update_probe(probe_id, updates)
 
 

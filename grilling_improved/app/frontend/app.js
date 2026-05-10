@@ -574,14 +574,20 @@ async function applyPreset(probeId, name, temp) {
   const probe = state.probes.find(p => p.id === probeId);
   if (probe) {
     probe.preset = name;
-    if (probe.active_session) { probe.active_session.preset = name; probe.active_session.target_temp = temp; }
+    if (probe.active_session) {
+      probe.active_session.preset = name;
+      probe.active_session.target_temp = temp;
+    }
     const card = document.getElementById(`probe-card-${probeId}`);
     if (card) { card.replaceWith(buildProbeCard(probe)); await initProbeChart(probe); }
   }
   showToast(`Preset → ${name} (${temp}°C)`, '#4ade80');
   try {
+    // Always send both preset and target_temp explicitly
     await PATCH(`/api/probes/${probeId}`, { preset: name, target_temp: temp });
-    if (probe?.active_session) await PATCH(`/api/cooks/${probe.active_session.id}`, { preset: name, target_temp: temp });
+    if (probe?.active_session) {
+      await PATCH(`/api/cooks/${probe.active_session.id}`, { preset: name, target_temp: temp });
+    }
   } catch (e) { showToast('Save error: ' + e.message, '#f87171'); }
 }
 

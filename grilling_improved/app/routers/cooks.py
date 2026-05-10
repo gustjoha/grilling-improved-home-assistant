@@ -151,7 +151,7 @@ async def update_cook(session_id: str, data: UpdateCookRequest):
     if session.get("ended_at"):
         raise HTTPException(400, "Cannot update a completed session")
 
-    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    updates = data.model_dump(exclude_unset=True)
 
     # If target changed, reset goal_reached and cancel auto-end
     if "target_temp" in updates and updates["target_temp"] != session.get("target_temp"):

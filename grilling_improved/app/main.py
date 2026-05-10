@@ -114,6 +114,14 @@ INDEX = os.path.join(FRONTEND, "index.html")
 
 
 @app.get("/")
+async def serve_root():
+    return FileResponse(INDEX)
+
+
 @app.get("/{full_path:path}")
-async def serve_spa(full_path: str = ""):
+async def serve_spa(full_path: str):
+    # Never serve index.html for API routes — let FastAPI 404 naturally
+    if full_path.startswith("api/") or full_path == "ws":
+        from fastapi import HTTPException
+        raise HTTPException(404, f"Not found: {full_path}")
     return FileResponse(INDEX)
