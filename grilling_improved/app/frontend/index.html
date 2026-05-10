@@ -41,11 +41,18 @@ textarea{resize:vertical;min-height:70px}
 <script type="text/babel" data-presets="react">
 const{useState,useEffect,useRef,useCallback}=React;
 
-// ── API — all calls are relative so Ingress proxy handles path rewriting ──────
-// fetch('api/probes') resolves relative to current page URL automatically.
-// No BASE prefix needed — the browser + Ingress handle it.
+// ── API ───────────────────────────────────────────────────────────────────────
+// Compute the base path once. When served via HA Ingress the page URL is:
+//   https://ha/api/hassio_ingress/TOKEN/
+// All API fetch calls must be prefixed with this base so Ingress routes them
+// to our addon container. We strip the trailing slash from pathname.
+const _BASE=(()=>{const p=window.location.pathname;return p==='/'?'':p.replace(/\/$/,'');})();
+
 const apiFetch=async(path,opts={})=>{
-  const res=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
+  // path is like 'api/probes' or '/api/probes' — normalise to no leading slash
+  const clean=path.replace(/^\//,'');
+  const url=_BASE+'/'+clean;
+  const res=await fetch(url,{headers:{'Content-Type':'application/json'},...opts});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||`HTTP ${res.status}`);}
   return res.json();
 };
@@ -95,7 +102,7 @@ function useWS(onMessage){
     const connect=()=>{
       const proto=location.protocol==='https:'?'wss':'ws';
       // Use same host — Ingress proxies WS too
-      const s=new WebSocket(`${proto}://${location.host}${location.pathname.replace(/\/$/,'')||''}/ws`);
+      const s=new WebSocket(`${proto}://${location.host}${_BASE}/ws`);
       s.onopen=()=>{
         setConn(true);
         const ping=setInterval(()=>s.readyState===1&&s.send(JSON.stringify({type:'ping'})),20000);
