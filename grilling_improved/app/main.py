@@ -172,9 +172,25 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 # ── Serve frontend ─────────────────────────────────────────────────────────────
-# Serve index.html for all non-API paths so Ingress works cleanly.
-# Ingress strips its own prefix before forwarding, so FastAPI always
-# sees paths starting with / relative to the addon root.
+# Ingress forwards requests with various path prefixes stripped.
+# We serve index.html for ANY path that isn't an API route.
+# Using middleware instead of a route catch-all avoids method conflicts.
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
+
+class SPAMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        if (response.status_code == 404
+                and request.method == "GET"
+                and not request.url.path.startswith("/api/")
+                and not request.url.path.startswith("/ws")):
+            return FileResponse(INDEX)
+        return response
+
+app.add_middleware(SPAMiddleware)
 
 @app.get("/")
 @app.get("/index.html")
