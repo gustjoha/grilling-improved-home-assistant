@@ -1,4 +1,39 @@
-'use strict';
+// ── Base URL (works behind HA Ingress which rewrites paths) ──────────────────
+// When served via Ingress, window.location.pathname is something like
+// /api/hassio_ingress/TOKEN/ — all API calls must be relative to that base.
+const BASE_URL = (() => {
+  // If the page is served from an ingress path, strip the trailing slash
+  // and use it as prefix for all API calls. Otherwise use empty string.
+  const path = window.location.pathname;
+  // Ingress paths look like /api/hassio_ingress/TOKEN/...
+  // We want everything up to and including the last / before our SPA content
+  if (path && path !== '/') {
+    return path.replace(/\/$/, '');
+  }
+  return '';
+})();
+
+function apiUrl(path) {
+  // path should start with /api/... or /ws
+  return BASE_URL + path;
+}
+
+// ── Global error handler — surface JS crashes as visible toasts ───────────────
+window.addEventListener('error', (e) => {
+  console.error('Uncaught error:', e.message, e.filename, e.lineno);
+  const t = document.getElementById('toast');
+  if (t) {
+    t.textContent = `JS Error: ${e.message}`;
+    t.style.borderColor = '#f87171';
+    t.style.color = '#f87171';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 6000);
+  }
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Unhandled promise rejection:', e.reason);
+});
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const state = {
@@ -17,6 +52,24 @@ const state = {
 };
 
 const pendingMilestones = [];
+
+// ── Expose globals immediately (before any code that could throw) ─────────────
+// These must be set early so HTML onclick= attributes work even if later
+// code errors. They reference functions defined below — this is fine in JS
+// because function declarations are hoisted.
+window.openAddProbeModal        = function(...a) { return openAddProbeModal(...a); };
+window.closeProbeModal          = function(...a) { return closeProbeModal(...a); };
+window.saveProbe                = function(...a) { return saveProbe(...a); };
+window.updateGoalFields         = function(...a) { return updateGoalFields(...a); };
+window.closeStartCookModal      = function(...a) { return closeStartCookModal(...a); };
+window.startCook                = function(...a) { return startCook(...a); };
+window.updateStartCookGoalFields = function(...a) { return updateStartCookGoalFields(...a); };
+window.addPendingMilestone      = function(...a) { return addPendingMilestone(...a); };
+window.removePendingMilestone   = function(...a) { return removePendingMilestone(...a); };
+window.cookAgain                = function(...a) { return cookAgain(...a); };
+window.runComparison            = function(...a) { return runComparison(...a); };
+window.loadHistory              = function(...a) { return loadHistory(...a); };
+window.switchTab                = function(...a) { return switchTab(...a); };
 
 // ── Presets ───────────────────────────────────────────────────────────────────
 const PRESETS = {
@@ -43,7 +96,7 @@ const QUICK_PRESETS = [
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function api(path, options = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
@@ -61,7 +114,8 @@ const DELETE = (path)       => api(path, { method: 'DELETE' });
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const wsUrl = `${proto}://${location.host}${apiUrl('/ws')}`;
+  const ws = new WebSocket(wsUrl);
   state.ws = ws;
 
   ws.onopen = () => {
@@ -1080,17 +1134,4 @@ function showToast(msg, color = '#4ade80') {
   setTimeout(() => t.classList.remove('show'), 3500);
 }
 
-// Expose globals used from HTML onclick attributes
-window.openAddProbeModal       = openAddProbeModal;
-window.closeProbeModal         = closeProbeModal;
-window.saveProbe               = saveProbe;
-window.updateGoalFields        = updateGoalFields;
-window.closeStartCookModal     = closeStartCookModal;
-window.startCook               = startCook;
-window.updateStartCookGoalFields = updateStartCookGoalFields;
-window.addPendingMilestone     = addPendingMilestone;
-window.removePendingMilestone  = removePendingMilestone;
-window.cookAgain               = cookAgain;
-window.runComparison           = runComparison;
-window.loadHistory             = loadHistory;
-window.switchTab               = switchTab;
+// end of app.js
