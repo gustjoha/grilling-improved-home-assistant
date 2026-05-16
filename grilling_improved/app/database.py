@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS milestones (
 )
 """
 
+CREATE_NOTES = """
+CREATE TABLE IF NOT EXISTS cook_notes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    ts          TEXT NOT NULL,
+    note        TEXT NOT NULL,
+    photo_data  TEXT,
+    FOREIGN KEY (session_id) REFERENCES cook_sessions(id)
+)
+"""
+
+CREATE_NOTES_IDX = "CREATE INDEX IF NOT EXISTS idx_notes_session ON cook_notes(session_id, ts)"
+
 CREATE_READINGS_IDX = "CREATE INDEX IF NOT EXISTS idx_readings_session ON readings(session_id, ts)"
 CREATE_MILESTONES_IDX = "CREATE INDEX IF NOT EXISTS idx_milestones_session ON milestones(session_id)"
 
@@ -153,6 +166,13 @@ async def _migrate(db):
             await db.execute(f"ALTER TABLE readings ADD COLUMN {col} {coltype}")
         except Exception:
             pass
+
+    # Ensure cook_notes table exists (added in 2.1.4)
+    try:
+        await db.execute(CREATE_NOTES)
+        await db.execute(CREATE_NOTES_IDX)
+    except Exception:
+        pass
 
 
 # ── Probes ────────────────────────────────────────────────────────────────────
@@ -511,5 +531,35 @@ async def get_comparison_readings(session_ids: list[str]) -> dict:
                 result[sid] = [dict(r) for r in await cur.fetchall()]
     return result
 
+# ── Cook Notes ────────────────────────────────────────────────────────────────
+
+async def add_note(session_id: str, note: str, photo_data: Optional[str] = None) -> dict:
+    ts = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO cook_notes (session_id, ts, note, photo_data) VALUES (?,?,?,?)",
+            (session_id, ts, note, photo_data),
+        )
+        row_id = cursor.lastrowid
+        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM cook_notes WHERE id=?", (row_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else {}
 
 
+async def get_notes(session_id: str) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM cook_notes WHERE session_id=? ORDER BY ts",
+            (session_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+async def delete_note(note_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM cook_notes WHERE id=?", (note_id,))
+        await db.commit()

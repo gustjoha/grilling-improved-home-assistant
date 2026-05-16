@@ -273,3 +273,37 @@ async def _end_session_internal(session_id: str, reason: str, probe: Optional[di
         await ha_client.broadcast_fn({
             "type": "session_ended", "session_id": session_id, "reason": reason,
         })
+
+
+# ── Cook Notes ────────────────────────────────────────────────────────────────
+
+class NoteCreate(BaseModel):
+    note: str
+    photo_data: Optional[str] = None
+
+
+@router.get("/{session_id}/notes")
+async def get_notes(session_id: str):
+    session = await db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return await db.get_notes(session_id)
+
+
+@router.post("/{session_id}/notes")
+async def add_note(session_id: str, data: NoteCreate):
+    session = await db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if data.photo_data and len(data.photo_data) > 5_000_000:
+        raise HTTPException(400, "Photo too large (max ~3.5MB base64)")
+    note = await db.add_note(session_id, data.note.strip(), data.photo_data or None)
+    if ha_client.broadcast_fn:
+        await ha_client.broadcast_fn({"type": "note_added", "session_id": session_id, "note": note})
+    return note
+
+
+@router.delete("/{session_id}/notes/{note_id}")
+async def delete_note(session_id: str, note_id: int):
+    await db.delete_note(note_id)
+    return {"ok": True}

@@ -29,7 +29,8 @@ async def get_session_readings(session_id: str):
     if not session:
         raise HTTPException(404, "Session not found")
     readings = await db.get_readings(session_id)
-    return {"session": session, "readings": readings}
+    notes = await db.get_notes(session_id)
+    return {"session": session, "readings": readings, "notes": notes}
 
 
 @router.get("/session/{session_id}/readings/recent")

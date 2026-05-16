@@ -258,8 +258,109 @@ function TempChart({readings=[],targetTemp,height=120}){
 );
 }
 
+
+// ── CookNotes — timestamped notes with photo upload ──────────────────────────
+function CookNotes({sessionId}){
+  const[notes,setNotes]=useState([]);
+  const[text,setText]=useState('');
+  const[photo,setPhoto]=useState(null);
+  const[saving,setSaving]=useState(false);
+  const[expanded,setExpanded]=useState(true);
+  const fileRef=useRef();
+  const toast=useToast();
+
+  const load=useCallback(()=>{
+    GET(`api/cooks/${sessionId}/notes`).then(setNotes).catch(()=>{});
+  },[sessionId]);
+
+  useEffect(()=>{load();},[load]);
+
+  const handlePhoto=e=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    if(file.size>3_500_000){toast('Image too large (max ~3.5MB)','error');return;}
+    const reader=new FileReader();
+    reader.onload=ev=>setPhoto(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const save=async()=>{
+    if(!text.trim()&&!photo){toast('Add a note or photo','error');return;}
+    setSaving(true);
+    try{
+      await POST(`api/cooks/${sessionId}/notes`,{note:text.trim()||'📷 Photo',photo_data:photo||null});
+      setText('');setPhoto(null);
+      if(fileRef.current)fileRef.current.value='';
+      load();
+    }catch(e){toast(e.message,'error');}
+    finally{setSaving(false);}
+  };
+
+  const del=async(noteId)=>{
+    try{await DELETE(`api/cooks/${sessionId}/notes/${noteId}`);load();}
+    catch(e){toast(e.message,'error');}
+  };
+
+  const fmtTs=iso=>{
+    const d=new Date(iso);
+    return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · '+d.toLocaleDateString([],{month:'short',day:'numeric'});
+  };
+
+  return(
+    <div style={{borderTop:'1px solid var(--border)'}}>
+      {/* Header */}
+      <div onClick={()=>setExpanded(e=>!e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',cursor:'pointer',userSelect:'none'}}>
+        <span style={{fontSize:11,fontWeight:600,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.09em'}}>
+          📝 Cook Notes {notes.length>0&&<span style={{color:'var(--fire)',marginLeft:4}}>{notes.length}</span>}
+        </span>
+        <span style={{color:'var(--muted)',fontSize:12}}>{expanded?'▲':'▼'}</span>
+      </div>
+
+      {expanded&&(
+        <div style={{padding:'0 14px 12px'}}>
+          {/* Existing notes */}
+          {notes.length>0&&(
+            <div style={{marginBottom:10,display:'flex',flexDirection:'column',gap:8}}>
+              {notes.map(n=>(
+                <div key={n.id} style={{background:'var(--surface2)',borderRadius:8,padding:'8px 10px',position:'relative'}}>
+                  <div style={{fontSize:10,color:'var(--muted)',marginBottom:4,fontWeight:600}}>{fmtTs(n.ts)}</div>
+                  {n.note&&n.note!=='📷 Photo'&&<div style={{fontSize:13,lineHeight:1.4,color:'var(--text2)'}}>{n.note}</div>}
+                  {n.photo_data&&<img src={n.photo_data} alt="note" style={{width:'100%',borderRadius:6,marginTop:n.note&&n.note!=='📷 Photo'?6:0,maxHeight:180,objectFit:'cover',display:'block'}}/>}
+                  <button onClick={()=>del(n.id)} style={{position:'absolute',top:6,right:8,background:'none',border:'none',cursor:'pointer',color:'var(--muted)',fontSize:14,lineHeight:1,padding:'0 2px'}} title="Delete note">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* New note input */}
+          <textarea value={text} onChange={e=>setText(e.target.value)}
+            placeholder="Add a timestamped note…"
+            style={{minHeight:50,fontSize:12,marginBottom:6,resize:'vertical'}}/>
+
+          {/* Photo preview */}
+          {photo&&(
+            <div style={{position:'relative',marginBottom:6}}>
+              <img src={photo} alt="preview" style={{width:'100%',borderRadius:6,maxHeight:140,objectFit:'cover',display:'block'}}/>
+              <button onClick={()=>{setPhoto(null);if(fileRef.current)fileRef.current.value='';}}
+                style={{position:'absolute',top:5,right:5,background:'rgba(0,0,0,.6)',border:'none',borderRadius:'50%',width:22,height:22,cursor:'pointer',color:'#fff',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+            </div>
+          )}
+
+          <div style={{display:'flex',gap:6}}>
+            <button onClick={()=>fileRef.current?.click()} style={{...btn({padding:'5px 10px',fontSize:12,color:'var(--muted)',flexShrink:0}),title:'Attach photo'}}>📷</button>
+            <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}}/>
+            <button onClick={save} disabled={saving} style={{...btn({flex:1,padding:'5px 10px',fontSize:12,color:'var(--fire)',border:'1px solid var(--fire)',background:'rgba(249,115,22,.08)',opacity:saving?.6:1})}}>
+              {saving?'Saving…':'Save Note'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Probe Card ────────────────────────────────────────────────────────────────
-function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitch,onRestStart,onJournal,chartRange,onChartRange}){
+function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitch,onRestStart,chartRange,onChartRange}){
   const session=probe.active_session;
   const temp=probe.current_temp;
   const ambient=probe.current_ambient;
@@ -267,14 +368,20 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
   const reached=!!session?.goal_reached_at;
   const[readings,setReadings]=useState([]);
   const[showAll,setShowAll]=useState(false);
-  const[journal,setJournal]=useState(session?.journal||'');
   const[restMin,setRestMin]=useState(session?.rest_minutes||15);
+  const activeRange=useRef(chartRange||30);
+
+  // Fetch readings — called on mount, session change, and range button click
+  const fetchReadings=useCallback((minutes)=>{
+    if(!session){setReadings([]);return;}
+    GET(`api/history/session/${session.id}/readings/recent?minutes=${minutes}`)
+      .then(d=>setReadings(d.readings||[])).catch(()=>{});
+  },[session?.id]);
 
   useEffect(()=>{
-    if(!session){setReadings([]);return;}
-    GET(`api/history/session/${session.id}/readings/recent?minutes=${chartRange||30}`)
-      .then(d=>setReadings(d.readings||[])).catch(()=>{});
-  },[session?.id,chartRange]);
+    activeRange.current=chartRange||30;
+    fetchReadings(activeRange.current);
+  },[session?.id,chartRange,fetchReadings]);
 
   const badge=offline?['⚫ Offline','#78716c']:!session?['◻ Idle','#78716c']:reached?['✅ Done','#4ade80']:['🔥 Cooking','#f97316'];
   const tempColor=offline?'#78716c':reached?'#4ade80':temp<40?'#60a5fa':temp>=80?'#f97316':'#fb923c';
@@ -334,7 +441,7 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
           <span style={{fontSize:11,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.09em'}}>Temperature Log</span>
           <div style={{display:'flex',gap:4}}>
             {[[30,'30m'],[60,'1h'],[240,'4h']].map(([m,l])=>(
-              <button key={m} onClick={()=>onChartRange(probe.id,m)} style={{padding:'2px 8px',fontSize:11,fontWeight:600,borderRadius:4,cursor:'pointer',border:(chartRange||30)===m?'1px solid var(--fire)':'1px solid var(--border)',background:(chartRange||30)===m?'rgba(249,115,22,.15)':'var(--surface2)',color:(chartRange||30)===m?'var(--fire)':'var(--muted)'}}>
+              <button key={m} onClick={()=>{onChartRange(probe.id,m);fetchReadings(m);}} style={{padding:'2px 8px',fontSize:11,fontWeight:600,borderRadius:4,cursor:'pointer',border:(chartRange||30)===m?'1px solid var(--fire)':'1px solid var(--border)',background:(chartRange||30)===m?'rgba(249,115,22,.15)':'var(--surface2)',color:(chartRange||30)===m?'var(--fire)':'var(--muted)'}}>
                 {l}
               </button>
             ))}
@@ -371,11 +478,7 @@ function ProbeCard({probe,onEdit,onDelete,onStartCook,onEndCook,onPreset,onSwitc
       })()}
 
       {session&&(
-        <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)'}}>
-          <Label>📝 Cook Journal</Label>
-          <textarea value={journal} onChange={e=>setJournal(e.target.value)} placeholder="Notes, observations…" style={{minHeight:55,fontSize:12}}/>
-          <button onClick={()=>onJournal(session.id,journal)} style={btn({marginTop:5,padding:'4px 12px',fontSize:12,color:'var(--muted)'})}>Save</button>
-        </div>
+        <CookNotes sessionId={session.id}/>
       )}
 
       <div style={{display:'flex',gap:8,padding:'10px 12px',borderTop:'1px solid var(--border)',background:'var(--surface2)'}}>
@@ -499,7 +602,8 @@ function SessionCard({session}){
   const started=new Date(session.started_at);
   const ended=session.ended_at?new Date(session.ended_at):null;
   const dur=ended?fmtDur((ended-started)/1000):'🔴 Active';
-  useEffect(()=>{if(!open||readings.length)return;GET(`api/history/session/${session.id}/readings`).then(d=>setReadings(d.readings||[])).catch(()=>{});},[open]);
+  const[notes,setNotes]=useState([]);
+  useEffect(()=>{if(!open||readings.length)return;GET(`api/history/session/${session.id}/readings`).then(d=>{setReadings(d.readings||[]);setNotes(d.notes||[]);}).catch(()=>{});},[open]);
   return(
     <div style={{...card(),overflow:'hidden',transition:'border-color .2s'}} onMouseEnter={e=>e.currentTarget.style.borderColor='var(--fire)'} onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
       <div onClick={()=>setOpen(o=>!o)} style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',padding:'14px 16px',cursor:'pointer'}}>
@@ -522,8 +626,21 @@ function SessionCard({session}){
             {session.weather_temp!=null&&<span>🌤 {session.weather_condition} {session.weather_temp}°C{session.weather_humidity?` ${session.weather_humidity}%`:''}</span>}
             {session.meat_weight_kg&&<span>⚖️ {session.meat_weight_kg}kg</span>}
           </div>
-          {session.journal&&<div style={{marginTop:10,padding:'8px 12px',background:'var(--surface2)',borderRadius:8,fontSize:12,color:'var(--muted)',fontStyle:'italic'}}>📝 {session.journal}</div>}
-          {session.photo_data&&<img src={session.photo_data} alt="Cook" style={{width:'100%',borderRadius:8,marginTop:10,maxHeight:200,objectFit:'cover'}}/>}
+          {notes.length>0&&(
+            <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:6}}>
+              {notes.map(n=>{
+                const d=new Date(n.ts);
+                const ts=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · '+d.toLocaleDateString([],{month:'short',day:'numeric'});
+                return(
+                  <div key={n.id} style={{background:'var(--surface2)',borderRadius:8,padding:'8px 10px'}}>
+                    <div style={{fontSize:10,color:'var(--muted)',marginBottom:3,fontWeight:600}}>{ts}</div>
+                    {n.note&&n.note!=='📷 Photo'&&<div style={{fontSize:12,color:'var(--text2)',lineHeight:1.4}}>{n.note}</div>}
+                    {n.photo_data&&<img src={n.photo_data} alt="note" style={{width:'100%',borderRadius:6,marginTop:n.note&&n.note!=='📷 Photo'?5:0,maxHeight:180,objectFit:'cover',display:'block'}}/>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div style={{display:'flex',gap:8,marginTop:12}}>
             <a href={`api/analytics/export/session/${session.id}/csv`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ CSV</a>
             <a href={`api/analytics/export/session/${session.id}/json`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ JSON</a>
@@ -567,7 +684,7 @@ function AnalyticsTab({history}){
   };
   const A={...card(),overflow:'hidden'};
   return(
-    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+    <div style={{display:'flex',flexDirection:'column',gap:20,minHeight:0}}>
       <div style={A}>
         <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>📊 Preset Statistics</div>
         <div style={{overflowX:'auto'}}>
@@ -584,7 +701,7 @@ function AnalyticsTab({history}){
         </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:20}}>
-        <div style={{...A,gridColumn:'1/-1'}}>
+        <div style={{...A,gridColumn:'1/-1',overflow:'hidden'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderBottom:'1px solid var(--border)'}}>
             <span style={{fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🔀 Cook Comparison</span>
             <button onClick={compare} style={btn({padding:'5px 14px',fontSize:12,color:'var(--fire)',border:'1px solid rgba(249,115,22,.4)',background:'rgba(249,115,22,.08)'})}>Compare</button>
@@ -594,13 +711,13 @@ function AnalyticsTab({history}){
               {history.filter(s=>s.ended_at).slice(0,20).map(s=><label key={s.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={selected.includes(s.id)} onChange={e=>setSelected(sel=>e.target.checked?[...sel,s.id]:sel.filter(x=>x!==s.id))} style={{accentColor:'var(--fire)'}}/><span>{s.name} — <span style={{color:'var(--muted)'}}>{fmtDate(s.started_at)}</span></span></label>)}
               {!history.filter(s=>s.ended_at).length&&<div style={{color:'var(--muted)',fontSize:12,padding:'8px 0'}}>No completed sessions yet</div>}
             </div>
-            <div style={{position:'relative', height:200, width:'100%'}}>
+            <div style={{position:'relative', height:200, width:'100%', flexShrink:0}}>
   <canvas ref={cRef} style={{position:'absolute', top:0, left:0, right:0, bottom:0}}/>
 </div>
 
           </div>
         </div>
-        <div style={A}><div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🌤 Weather vs Duration</div><div style={{padding:16}}><canvas ref={wRef} style={{height:180}}/><div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Requires weather entity on probe.</div></div></div>
+        <div style={A}><div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🌤 Weather vs Duration</div><div style={{padding:16,overflow:'hidden'}}><div style={{position:"relative",height:180,width:"100%",flexShrink:0}}><canvas ref={wRef} style={{position:"absolute",top:0,left:0,right:0,bottom:0}}/></div><div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Requires weather entity on probe.</div></div></div>
         <div style={A}>
           <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🔥 Grill Personality</div>
           <div style={{padding:16}}>
@@ -669,7 +786,6 @@ function App(){
   const handleDelete=async(probeId)=>{if(!confirm('Remove this probe?'))return;try{await DELETE(`api/probes/${probeId}`);toast('Probe removed','error');await loadProbes();}catch(e){toast(e.message,'error');}};
   const handleEndCook=async(probeId,sessionId)=>{if(!confirm('End this cook?'))return;try{await POST(`api/cooks/${sessionId}/end`,{});toast('Cook ended','info');await loadProbes();}catch(e){toast(e.message,'error');}};
   const handleRestStart=async(sessionId,minutes)=>{try{await POST(`api/cooks/${sessionId}/rest`,{minutes:parseInt(minutes)});toast(`⏱ Rest timer: ${minutes} min`,'info');await loadProbes();}catch(e){toast(e.message,'error');}};
-  const handleJournal=async(sessionId,text)=>{try{await PATCH(`api/cooks/${sessionId}/journal`,{journal:text});toast('Journal saved ✓');}catch(e){toast(e.message,'error');}};
 
   const active=probes.filter(p=>p.active_session).length;
   const reached=probes.filter(p=>p.active_session?.goal_reached_at).length;
@@ -727,7 +843,6 @@ function App(){
                     onPreset={handlePreset}
                     onSwitch={handleSwitch}
                     onRestStart={handleRestStart}
-                    onJournal={handleJournal}
                   />
                 ))}
               </div>
