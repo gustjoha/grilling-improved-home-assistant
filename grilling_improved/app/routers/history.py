@@ -41,3 +41,12 @@ async def get_recent_readings(session_id: str, minutes: int = Query(30, le=480))
         raise HTTPException(404, "Session not found")
     readings = await db.get_recent_readings(session_id, minutes=minutes)
     return {"session": session, "readings": readings}
+
+@router.delete("/session/{session_id}")
+async def delete_session(session_id: str):
+    """Permanently delete a cook session and all its readings and notes."""
+    session = await db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    await db.delete_session(session_id)
+    return {"ok": True}

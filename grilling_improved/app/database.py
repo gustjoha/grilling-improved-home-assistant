@@ -563,3 +563,12 @@ async def delete_note(note_id: int) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM cook_notes WHERE id=?", (note_id,))
         await db.commit()
+
+async def delete_session(session_id: str):
+    """Delete a cook session and all associated readings and notes."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM readings WHERE session_id=?", (session_id,))
+        await db.execute("DELETE FROM cook_notes WHERE session_id=?", (session_id,))
+        await db.execute("DELETE FROM milestones WHERE session_id=?", (session_id,))
+        await db.execute("DELETE FROM cook_sessions WHERE id=?", (session_id,))
+        await db.commit()
