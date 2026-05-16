@@ -251,7 +251,11 @@ function TempChart({readings=[],targetTemp,height=120}){
     return()=>{if(chart.current)chart.current.destroy();};
   },[readings,targetTemp]);
   if(!readings.length)return <div style={{height,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted)',fontSize:12}}>No data yet</div>;
-  return <canvas ref={ref} style={{height}}/>;
+  return (
+  <div style={{position:'relative', height, width:'100%'}}>
+    <canvas ref={ref} style={{position:'absolute', top:0, left:0, right:0, bottom:0}}/>
+  </div>
+);
 }
 
 // ── Probe Card ────────────────────────────────────────────────────────────────
@@ -590,7 +594,10 @@ function AnalyticsTab({history}){
               {history.filter(s=>s.ended_at).slice(0,20).map(s=><label key={s.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:13,cursor:'pointer'}}><input type="checkbox" checked={selected.includes(s.id)} onChange={e=>setSelected(sel=>e.target.checked?[...sel,s.id]:sel.filter(x=>x!==s.id))} style={{accentColor:'var(--fire)'}}/><span>{s.name} — <span style={{color:'var(--muted)'}}>{fmtDate(s.started_at)}</span></span></label>)}
               {!history.filter(s=>s.ended_at).length&&<div style={{color:'var(--muted)',fontSize:12,padding:'8px 0'}}>No completed sessions yet</div>}
             </div>
-            <canvas ref={cRef} style={{height:200}}/>
+            <div style={{position:'relative', height:200, width:'100%'}}>
+  <canvas ref={cRef} style={{position:'absolute', top:0, left:0, right:0, bottom:0}}/>
+</div>
+
           </div>
         </div>
         <div style={A}><div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',fontFamily:'var(--display)',fontSize:18,letterSpacing:'.04em'}}>🌤 Weather vs Duration</div><div style={{padding:16}}><canvas ref={wRef} style={{height:180}}/><div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Requires weather entity on probe.</div></div></div>
