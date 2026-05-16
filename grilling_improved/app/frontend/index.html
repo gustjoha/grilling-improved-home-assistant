@@ -595,6 +595,73 @@ function StartCookModal({open,probe,onClose,onSave}){
   );
 }
 
+
+// ── SessionPhoto — add/view a cover photo on a completed cook ─────────────────
+function SessionPhoto({sessionId, existingPhoto}){
+  const[photo,setPhoto]=useState(existingPhoto||null);
+  const[saving,setSaving]=useState(false);
+  const[lightbox,setLightbox]=useState(false);
+  const fileRef=useRef();
+  const toast=useToast();
+
+  const handleFile=e=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    if(file.size>3_500_000){toast('Image too large (max ~3.5MB)','error');return;}
+    const reader=new FileReader();
+    reader.onload=async ev=>{
+      const data=ev.target.result;
+      setSaving(true);
+      try{
+        await POST(`api/cooks/${sessionId}/photo`,{photo_data:data});
+        setPhoto(data);
+        toast('Photo saved ✓');
+      }catch(e){toast(e.message,'error');}
+      finally{setSaving(false);}
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const remove=async()=>{
+    try{
+      await POST(`api/cooks/${sessionId}/photo`,{photo_data:null});
+      setPhoto(null);
+      if(fileRef.current)fileRef.current.value='';
+      toast('Photo removed');
+    }catch(e){toast(e.message,'error');}
+  };
+
+  return(
+    <div style={{marginTop:12}}>
+      {photo?(
+        <>
+          <div style={{position:'relative',cursor:'zoom-in'}} onClick={()=>setLightbox(true)}>
+            <img src={photo} alt="Cook photo" style={{width:'100%',borderRadius:8,maxHeight:220,objectFit:'cover',display:'block',transition:'opacity .15s'}}
+              onMouseEnter={e=>e.currentTarget.style.opacity='.85'}
+              onMouseLeave={e=>e.currentTarget.style.opacity='1'}/>
+            <div style={{position:'absolute',bottom:8,right:8,display:'flex',gap:6}}>
+              <button onClick={e=>{e.stopPropagation();fileRef.current?.click();}} style={{...btn({padding:'4px 10px',fontSize:11,background:'rgba(0,0,0,.6)',color:'#fff',border:'none',borderRadius:6})}}>🔄 Replace</button>
+              <button onClick={e=>{e.stopPropagation();remove();}} style={{...btn({padding:'4px 10px',fontSize:11,background:'rgba(0,0,0,.6)',color:'var(--red)',border:'none',borderRadius:6})}}>✕ Remove</button>
+            </div>
+          </div>
+          {/* Lightbox */}
+          {lightbox&&(
+            <div onClick={()=>setLightbox(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.92)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',cursor:'zoom-out',padding:20}}>
+              <img src={photo} alt="Cook photo" style={{maxWidth:'100%',maxHeight:'100%',borderRadius:8,objectFit:'contain'}}/>
+              <button onClick={()=>setLightbox(false)} style={{position:'absolute',top:16,right:16,background:'rgba(255,255,255,.1)',border:'none',borderRadius:'50%',width:36,height:36,cursor:'pointer',color:'#fff',fontSize:18}}>✕</button>
+            </div>
+          )}
+        </>
+      ):(
+        <button onClick={()=>fileRef.current?.click()} disabled={saving} style={{...btn({width:'100%',padding:'10px',fontSize:12,color:'var(--muted)',background:'var(--surface2)',border:'1px dashed var(--border)',borderRadius:8,opacity:saving?.6:1})}}>
+          {saving?'Saving…':'📷 Add Cook Photo'}
+        </button>
+      )}
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:'none'}}/>
+    </div>
+  );
+}
+
 // ── Session Card ───────────────────────────────────────────────────────────────
 function SessionCard({session}){
   const[open,setOpen]=useState(false);
@@ -641,6 +708,9 @@ function SessionCard({session}){
               })}
             </div>
           )}
+          {/* Session photo */}
+          <SessionPhoto sessionId={session.id} existingPhoto={session.photo_data}/>
+
           <div style={{display:'flex',gap:8,marginTop:12}}>
             <a href={`api/analytics/export/session/${session.id}/csv`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ CSV</a>
             <a href={`api/analytics/export/session/${session.id}/json`} download style={{...btn({fontSize:12,color:'var(--amber)',border:'1px solid rgba(251,191,36,.3)',textDecoration:'none'})}}>⬇ JSON</a>

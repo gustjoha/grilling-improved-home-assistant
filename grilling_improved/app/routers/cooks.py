@@ -194,12 +194,12 @@ async def cancel_rest_timer(session_id: str):
 
 @router.post("/{session_id}/photo")
 async def save_photo(session_id: str, payload: dict):
-    """Save a base64-encoded photo to the session."""
+    """Save or remove a base64-encoded photo on the session. Pass photo_data=null to remove."""
     session = await db.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
-    photo_data = payload.get("photo_data", "")
-    if len(photo_data) > 5_000_000:
+    photo_data = payload.get("photo_data", None)
+    if photo_data and len(photo_data) > 5_000_000:
         raise HTTPException(400, "Photo too large (max ~3.5MB base64)")
     await db.update_session(session_id, {"photo_data": photo_data})
     return {"ok": True}
